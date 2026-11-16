@@ -1,0 +1,41 @@
+# //  Questa Sim-64
+# //  Version 2021.1 win64 Jan 19 2021
+# //
+# //  Copyright 1991-2021 Mentor Graphics Corporation
+# //  All Rights Reserved.
+# //
+# //  QuestaSim and its associated documentation contain trade
+# //  secrets and commercial or financial information that are the property of
+# //  Mentor Graphics Corporation and are privileged, confidential,
+# //  and exempt from disclosure under the Freedom of Information Act,
+# //  5 U.S.C. Section 552. Furthermore, this information
+# //  is prohibited from disclosure under the Trade Secrets Act,
+# //  18 U.S.C. Section 1905.
+# //
+# do run.do
+# tb_top
+# vsim -t ps work.tb_top 
+# Start time: 21:31:12 on Nov 13,2026
+# ** Error (suppressible): (vsim-19) Failed to access library 'work' at "work".
+# No such file or directory. (errno = ENOENT)
+# Error loading design
+# Error: Error loading design
+#        Pausing macro execution
+# MACRO ./run.do PAUSED at line 4
+vlib work
+do run.do
+# tb_top
+# vsim -t ps work.tb_top 
+# Start time: 21:31:12 on Nov 13,2026
+# ** Note: (vsim-3812) Design is being optimized...
+# ** Error: (vopt-13130) Failed to find design unit tb_top.
+#         Searched libraries:
+#             work
+# Optimization failed
+# ** Note: (vsim-12126) Error and warning message counts have been restored: Errors=2, Warnings=0.
+# Error loading design
+# Error: Error loading design
+#        Pausing macro execution
+# MACRO ./run.do PAUSED at line 4
+
+

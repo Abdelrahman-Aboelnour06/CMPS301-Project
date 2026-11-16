@@ -1,0 +1,78 @@
+# demo.mem -- CMPS 301 demo program for tb_system
+# Format: one 32-bit hex word per line, written at the current address
+#         (starting at 0, auto-incremented). "@hhh" sets the address.
+#         Text after the hex word, and lines starting with # / ; are ignored.
+
+@000
+00000010    # 000: reset vector -> main
+00000100    # 001: hardware IRQ vector
+00000120    # 002: INT 0 vector
+00000140    # 003: INT 1 vector
+@010
+88800200    # 010: LDM  R1, 0x200        ; R1 = &table
+89000008    # 011: LDM  R2, 8            ; R2 = count
+89800000    # 012: LDM  R3, 0            ; R3 = sum
+8E100000    # 013: LDD  R4, 0(R1)        ; loop: R4 = table[i]
+49B80000    # 014: ADD  R3, R3, R4       ; load-use distance 1 (1 stall)
+60900001    # 015: IADD R1, R1, 1
+6120FFFF    # 016: IADD R2, R2, -1
+C4000019    # 017: JZ   0x19             ; predicted taken, mispredicts 7x
+C0000013    # 018: JMP  0x13
+10300000    # 019: OUT  R3               ; 0x19: OUT.PORT = sum
+D0000080    # 01A: CALL 0x80             ; R5 = max(table)
+DC000000    # 01B: INT  0                ; R6 += 100 (ISR0)
+17800000    # 01C: IN   R7               ; R7 = IN.PORT
+5B800004    # 01D: SHR  R7, 4
+5F800008    # 01E: SHL  R7, 8
+9072FFF8    # 01F: STD  R7, -8(R1)    ; table[0] = R7  (R1 = 0x208)
+8C10FFF8    # 020: LDD  R0, -8(R1)       ; R0 = R7
+00000000    # 021: NOP
+4C0E0000    # 022: SUB  R0, R0, R7       ; load-use distance 2 -> 0, Z=1
+45D00000    # 023: SWAP R3, R5
+80300000    # 024: PUSH R3
+85000000    # 025: POP  R2               ; R2 = max
+05000000    # 026: NOT  R2
+8A000300    # 027: LDM  R4, 0x300
+8E400000    # 028: LDD  R4, 0(R4)        ; R4 = hardware-IRQ count
+DC010000    # 029: INT  1                ; ISR1: SETC; RTI (flags restored)
+1C000000    # 02A: HLT
+@080
+8A808000    # 080: LDM  R5, -32768       ; max = most negative 16-bit
+88800200    # 081: LDM  R1, 0x200
+89000008    # 082: LDM  R2, 8
+8E100000    # 083: LDD  R4, 0(R1)        ; 0x83 loop
+54580000    # 084: CMP  R5, R4           ; N=1 if R5 < R4 (signed, no ovf here)
+C8000087    # 085: JN   0x87
+C0000088    # 086: JMP  0x88
+42C00000    # 087: MOV  R5, R4           ; 0x87
+60900001    # 088: IADD R1, R1, 1        ; 0x88
+6120FFFF    # 089: IADD R2, R2, -1
+C400008C    # 08A: JZ   0x8C
+C0000083    # 08B: JMP  0x83
+D4000000    # 08C: RET                   ; 0x8C
+@100
+80500000    # 100: PUSH R5               ; hardware IRQ ISR
+80600000    # 101: PUSH R6
+8B000300    # 102: LDM  R6, 0x300
+8EE00000    # 103: LDD  R5, 0(R6)
+0A800000    # 104: INC  R5               ; load-use distance 1, changes flags
+905C0000    # 105: STD  R5, 0(R6)      ; M[0x300]++
+87000000    # 106: POP  R6
+86800000    # 107: POP  R5
+D8000000    # 108: RTI                   ; CCR restored from shadow
+@120
+63600064    # 120: IADD R6, R6, 100     ; INT 0 ISR
+D8000000    # 121: RTI
+@140
+18000000    # 140: SETC                  ; INT 1 ISR
+54000000    # 141: CMP  R0, R0
+D8000000    # 142: RTI
+@200
+00000005    # 200: .word 0x5  ; table[0]
+FFFFFFFD    # 201: .word 0xfffffffd  ; table[1]
+0000000C    # 202: .word 0xc  ; table[2]
+00000007    # 203: .word 0x7  ; table[3]
+00007000    # 204: .word 0x7000  ; table[4]
+00000001    # 205: .word 0x1  ; table[5]
+00000014    # 206: .word 0x14  ; table[6]
+00000002    # 207: .word 0x2  ; table[7]

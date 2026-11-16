@@ -1,0 +1,28 @@
+# demo.golden -- expected final state of programs/demo.mem (tb_system)
+# Conditions: IN.PORT = 0000ABCD, one INTR.IN pulse (IRQ_CYCLE = 40).
+# Format: NAME HEXVALUE   (names: R0..R7, SP, CCR, OUT, PC)
+#
+# Hand derivation:
+#   sum(table) = 5 - 3 + 12 + 7 + 0x7000 + 1 + 20 + 2 = 0x702C  -> OUT
+#   CALL 0x80 : R5 = signed max(table) = 0x7000, R1 = 0x208, R2 = 0
+#   INT 0     : R6 = 0 + 100 = 0x64
+#   IN/SHR/SHL: R7 = (0xABCD >> 4) << 8 = 0xABC00
+#   STD/LDD   : R0 = 0xABC00; SUB R0,R0,R7 -> R0 = 0 (Z=1, C=0)
+#   SWAP R3,R5: R3 = 0x7000, R5 = 0x702C
+#   PUSH R3 / POP R2 / NOT R2 : R2 = ~0x7000 = 0xFFFF8FFF (N=1, Z=0)
+#   LDD R4    : M[0x300] = number of hardware IRQs taken = 1
+#   INT 1     : ISR sets C and Z; RTI restores CCR = N = 0x2
+#   SP back to 0xFFF (all pushes popped); HLT at 0x2A, PC frozen at 0x2B
+
+R0  00000000
+R1  00000208
+R2  FFFF8FFF
+R3  00007000
+R4  00000001
+R5  0000702C
+R6  00000064
+R7  000ABC00
+SP  00000FFF
+CCR 2
+OUT 0000702C
+PC  0000002B

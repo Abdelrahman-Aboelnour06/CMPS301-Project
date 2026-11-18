@@ -18,10 +18,9 @@ architecture sim of tb_regfile is
   signal reset    : std_logic := '1';
   signal ra1, ra2 : raddr_t := "000";
   signal rd1, rd2 : word_t;
-  signal wa1, wa2 : raddr_t := "000";
-  signal wd1, wd2 : word_t := (others => '0');
-  signal we1, we2 : std_logic := '0';
-  signal swap     : std_logic := '0';
+  signal wa1      : raddr_t := "000";
+  signal wd1      : word_t := (others => '0');
+  signal we1      : std_logic := '0';
   signal regs     : reg_array_t;
 
   function r(i : natural) return raddr_t is
@@ -38,7 +37,6 @@ begin
   dut : entity work.regfile
     port map (clk => clk, reset => reset, ra1 => ra1, ra2 => ra2,
               rd1 => rd1, rd2 => rd2, wa1 => wa1, wd1 => wd1, we1 => we1,
-              wa2 => wa2, wd2 => wd2, we2 => we2, swap => swap,
               regs_out => regs);
 
   stim : process
@@ -68,49 +66,14 @@ begin
       check_eq(rd2, VALS(7 - i), "port2 read R" & integer'image(7 - i), errs);
     end loop;
 
-    -- port 2 write alone
-    we2 <= '1'; wa2 <= r(3); wd2 <= x"33333333"; tick;
-    we2 <= '0';
-    check_eq(regs(3), x"33333333", "port2 write", errs);
-
-    -- both ports, different registers, no swap
-    we1 <= '1'; wa1 <= r(1); wd1 <= x"AAAAAAAA";
-    we2 <= '1'; wa2 <= r(2); wd2 <= x"BBBBBBBB"; tick;
-    check_eq(regs(1), x"AAAAAAAA", "dual write R1", errs);
-    check_eq(regs(2), x"BBBBBBBB", "dual write R2", errs);
-
-    -- swap: wd1 -> wa2, wd2 -> wa1 (SWAP R1,R2 carries old R1 in wd1)
-    swap <= '1';
-    wa1 <= r(1); wd1 <= regs(1);
-    wa2 <= r(2); wd2 <= regs(2); tick;
-    check_eq(regs(1), x"BBBBBBBB", "swap R1", errs);
-    check_eq(regs(2), x"AAAAAAAA", "swap R2", errs);
-
-    -- SWAP R4,R4: same address, same data -> unchanged
-    wa1 <= r(4); wa2 <= r(4); wd1 <= regs(4); wd2 <= regs(4); tick;
-    check_eq(regs(4), VALS(4), "SWAP Rx,Rx no-op", errs);
-
-    -- same address, different data: port 2 wins
-    swap <= '0'; wa1 <= r(5); wa2 <= r(5); wd1 <= x"11111111"; wd2 <= x"22222222"; tick;
-    check_eq(regs(5), x"22222222", "port2 priority", errs);
-    we1 <= '0'; we2 <= '0';
-
     -- write-through: read the register being written in the same cycle
     we1 <= '1'; wa1 <= r(6); wd1 <= x"0F0F0F0F"; ra1 <= r(6); ra2 <= r(0);
     wait for 1 ns;
     check_eq(rd1, x"0F0F0F0F", "write-through port1", errs);
     check_eq(rd2, VALS(0), "unrelated read", errs);
-    we2 <= '1'; wa2 <= r(6); wd2 <= x"F0F0F0F0";
-    wait for 1 ns;
-    check_eq(rd1, x"F0F0F0F0", "write-through port2 priority", errs);
-    swap <= '1'; wa2 <= r(0);     -- effective: wd1 -> R0, wd2 -> R6
-    wait for 1 ns;
-    check_eq(rd1, x"F0F0F0F0", "write-through with swap (R6 <- wd2)", errs);
-    check_eq(rd2, x"0F0F0F0F", "write-through with swap (R0 <- wd1)", errs);
     tick;
-    we1 <= '0'; we2 <= '0'; swap <= '0';
-    check_eq(regs(6), x"F0F0F0F0", "R6 written", errs);
-    check_eq(regs(0), x"0F0F0F0F", "R0 written (R0 is a normal register)", errs);
+    we1 <= '0';
+    check_eq(regs(6), x"0F0F0F0F", "R6 written", errs);
 
     -- write enable low: no change
     wa1 <= r(7); wd1 <= x"99999999"; tick;

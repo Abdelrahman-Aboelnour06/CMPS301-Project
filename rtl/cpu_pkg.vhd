@@ -30,6 +30,10 @@ package cpu_pkg is
   subtype imm16_t  is std_logic_vector(15 downto 0);
 
   type reg_array_t is array (0 to NREGS-1) of word_t;
+  type rename_map_t is array (0 to 7) of raddr_t;
+  constant RENAME_MAP_RESET : rename_map_t := (
+    "000", "001", "010", "011", "100", "101", "110", "111"
+  );
   type mem_t       is array (0 to MEMDEPTH-1) of word_t;
 
   constant WORD_ZERO  : word_t  := (others => '0');
@@ -107,8 +111,6 @@ package cpu_pkg is
     read_port_1_uses_rdst         : std_logic;                            -- port-1 address = Rdst
     read_port_2_uses_rsrc1        : std_logic;                            -- port-2 address = Rsrc1
     write_port_1_enable           : std_logic;                            -- RF write port 1
-    write_port_2_enable           : std_logic;                            -- RF write port 2
-    swap_write_addresses          : std_logic;                            -- RF swap of write addresses
     update_zero_negative_flags    : std_logic;                            -- update Z and N
     update_carry_flag             : std_logic;                            -- update C
     result_from_in_port           : std_logic;                            -- result = IN.PORT
@@ -140,8 +142,6 @@ package cpu_pkg is
     read_port_1_uses_rdst         => '0',
     read_port_2_uses_rsrc1        => '0',
     write_port_1_enable           => '0',
-    write_port_2_enable           => '0',
-    swap_write_addresses          => '0',
     update_zero_negative_flags    => '0',
     update_carry_flag             => '0',
     result_from_in_port           => '0',
@@ -186,7 +186,6 @@ package cpu_pkg is
     read_addr_1           : raddr_t;
     read_addr_2           : raddr_t;
     write_addr_1          : raddr_t;
-    write_addr_2          : raddr_t;
     immediate             : imm16_t;
     immediate_unsigned    : std_logic;
     link_address          : word_t;
@@ -199,7 +198,6 @@ package cpu_pkg is
     read_addr_1           => "000",
     read_addr_2           => "000",
     write_addr_1          => "000",
-    write_addr_2          => "000",
     immediate             => IMM16_ZERO,
     immediate_unsigned    => '0',
     link_address          => WORD_ZERO);
@@ -207,55 +205,43 @@ package cpu_pkg is
   type x1_x2_t is record
     control               : ctrl_t;
     result_1              : word_t;
-    result_2              : word_t;
     operand_a             : word_t;
     operand_b             : word_t;
     immediate             : imm16_t;
     write_addr_1          : raddr_t;
-    write_addr_2          : raddr_t;
     link_address          : word_t;
   end record;
 
   constant X1_X2_NOP : x1_x2_t := (
     control               => CTRL_NOP,
     result_1              => WORD_ZERO,
-    result_2              => WORD_ZERO,
     operand_a             => WORD_ZERO,
     operand_b             => WORD_ZERO,
     immediate             => IMM16_ZERO,
     write_addr_1          => "000",
-    write_addr_2          => "000",
     link_address          => WORD_ZERO);
 
   type x2_m_t is record
     control               : ctrl_t;
     result_1              : word_t;
-    result_2              : word_t;
     write_addr_1          : raddr_t;
-    write_addr_2          : raddr_t;
   end record;
 
   constant X2_M_NOP : x2_m_t := (
     control               => CTRL_NOP,
     result_1              => WORD_ZERO,
-    result_2              => WORD_ZERO,
-    write_addr_1          => "000",
-    write_addr_2          => "000");
+    write_addr_1          => "000");
 
   type m_w_t is record
     control               : ctrl_t;
     result_1              : word_t;
-    result_2              : word_t;
     write_addr_1          : raddr_t;
-    write_addr_2          : raddr_t;
   end record;
 
   constant M_W_NOP : m_w_t := (
     control               => CTRL_NOP,
     result_1              => WORD_ZERO,
-    result_2              => WORD_ZERO,
-    write_addr_1          => "000",
-    write_addr_2          => "000");
+    write_addr_1          => "000");
 
   -- -------------------------------------------------------------------------
   -- Helpers

@@ -65,14 +65,7 @@ begin
           c.reads_operand_a := '1';
           c.write_port_1_enable := '1';
         when OP_SWAP =>
-          c.alu_operation := ALU_PASSA;
-          c.reads_operand_a := '1';
-          c.reads_operand_b := '1';
-          c.read_port_1_uses_rdst := '1';
-          c.read_port_2_uses_rsrc1 := '1';
-          c.write_port_1_enable := '1';
-          c.write_port_2_enable := '1';
-          c.swap_write_addresses := '1';
+          null;  -- handled by register renaming in D
         when OP_ADD =>
           c.alu_operation := ALU_ADD;
           c.reads_operand_a := '1';
@@ -188,8 +181,6 @@ begin
          read_port_1_uses_rdst         => '0',
          read_port_2_uses_rsrc1        => '0',
          write_port_1_enable           => '0',
-         write_port_2_enable           => '0',
-         swap_write_addresses          => '0',
          update_zero_negative_flags    => '0',
          update_carry_flag             => '0',
          result_from_in_port           => '0',

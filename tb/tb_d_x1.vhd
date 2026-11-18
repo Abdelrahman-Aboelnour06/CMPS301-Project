@@ -51,7 +51,7 @@ begin
     en <= '1';
     wait for 1 ns;
     d_in.control <= c_add; d_in.operand_a <= x"11111111"; d_in.operand_b <= x"22222222";
-    d_in.read_addr_1 <= "001"; d_in.read_addr_2 <= "010"; d_in.write_addr_1 <= "011"; d_in.write_addr_2 <= "100";
+    d_in.read_addr_1 <= "001"; d_in.read_addr_2 <= "010"; d_in.write_addr_1 <= "011";
     d_in.immediate <= x"8000"; d_in.immediate_unsigned <= '1'; d_in.link_address <= x"00000ABC";
     tick;
     check(d_out.control = CTRL_NOP, "reset -> bubble", errs);
@@ -64,7 +64,6 @@ begin
     check_eq(d_out.read_addr_1, "001", "capture ra1", errs);
     check_eq(d_out.read_addr_2, "010", "capture ra2", errs);
     check_eq(d_out.write_addr_1, "011", "capture wa1", errs);
-    check_eq(d_out.write_addr_2, "100", "capture wa2", errs);
     check_eq(d_out.immediate, x"8000", "capture imm (min)", errs);
     check_sl(d_out.immediate_unsigned, '1', "capture imm_u", errs);
     check_eq(d_out.link_address, x"00000ABC", "capture link", errs);

@@ -70,6 +70,8 @@ architecture rtl of top is
   signal ctrl_d         : ctrl_t := CTRL_NOP;
   signal decode_read_addr_1          : raddr_t := "000";
   signal decode_read_addr_2          : raddr_t := "000";
+  signal decode_write_addr_1         : raddr_t := "000";
+  signal rename_map                  : rename_map_t := RENAME_MAP_RESET;
   signal regfile_read_data_1         : word_t := WORD_ZERO;
   signal regfile_read_data_2         : word_t := WORD_ZERO;
   signal decode_immediate          : imm16_t := IMM16_ZERO;
@@ -241,9 +243,29 @@ begin
       inject   => decode_inject_irq,
       ctrl_raw => ctrl_raw,
       ctrl     => ctrl_d);
+  PROC_RENAME : process (clk)
+    variable idx_dst, idx_src : integer range 0 to 7;
+    variable tmp              : raddr_t;
+  begin
+    if rising_edge(clk) then
+      if reset = '1' then
+        rename_map <= RENAME_MAP_RESET;
+      elsif decode_is_real_instr = '1' and opcode = OP_SWAP
+            and decode_inject_irq = '0' and stall = '0' and dx1_flush = '0' then
+        idx_dst := to_integer(unsigned(f_rdst));
+        idx_src := to_integer(unsigned(f_rs1));
+        tmp     := rename_map(idx_dst);
+        rename_map(idx_dst) <= rename_map(idx_src);
+        rename_map(idx_src) <= tmp;
+      end if;
+    end if;
+  end process;
 
-  decode_read_addr_1 <= f_rdst when ctrl_d.read_port_1_uses_rdst  = '1' else f_rs1;
-  decode_read_addr_2 <= f_rs1  when ctrl_d.read_port_2_uses_rsrc1 = '1' else f_rs2;
+  decode_read_addr_1  <= rename_map(to_integer(unsigned(f_rdst))) when ctrl_d.read_port_1_uses_rdst  = '1'
+                    else rename_map(to_integer(unsigned(f_rs1)));
+  decode_read_addr_2  <= rename_map(to_integer(unsigned(f_rs1)))  when ctrl_d.read_port_2_uses_rsrc1 = '1'
+                    else rename_map(to_integer(unsigned(f_rs2)));
+  decode_write_addr_1 <= rename_map(to_integer(unsigned(f_rdst)));
 
   decode_immediate     <= instruction_word(15 downto 0);
   decode_immediate_unsigned   <= '1' when opcode = OP_LDM else '0';
@@ -271,10 +293,6 @@ begin
       wa1      => m_w_reg.write_addr_1,
       wd1      => m_w_reg.result_1,
       we1      => m_w_reg.control.write_port_1_enable,
-      wa2      => m_w_reg.write_addr_2,
-      wd2      => m_w_reg.result_2,
-      we2      => m_w_reg.control.write_port_2_enable,
-      swap     => m_w_reg.control.swap_write_addresses,
       regs_out => regs);
 
   u_intr_fsm : entity work.intr_fsm
@@ -328,8 +346,7 @@ begin
     operand_b             => regfile_read_data_2,
     read_addr_1           => decode_read_addr_1,
     read_addr_2           => decode_read_addr_2,
-    write_addr_1          => f_rdst,
-    write_addr_2          => f_rs1,
+    write_addr_1          => decode_write_addr_1,
     immediate             => decode_immediate,
     immediate_unsigned    => decode_immediate_unsigned,
     link_address          => decode_link_address);
@@ -355,28 +372,16 @@ begin
       rf_a     => d_x1_reg.operand_a,
       rf_b     => d_x1_reg.operand_b,
       x2_we1   => x1_x2_reg.control.write_port_1_enable,
-      x2_we2   => x1_x2_reg.control.write_port_2_enable,
-      x2_swap  => x1_x2_reg.control.swap_write_addresses,
       x2_wa1   => x1_x2_reg.write_addr_1,
-      x2_wa2   => x1_x2_reg.write_addr_2,
       x2_res1  => x1_x2_reg.result_1,
-      x2_res2  => x1_x2_reg.result_2,
       m_we1    => x2_m_reg.control.write_port_1_enable,
-      m_we2    => x2_m_reg.control.write_port_2_enable,
-      m_swap   => x2_m_reg.control.swap_write_addresses,
       m_wa1    => x2_m_reg.write_addr_1,
-      m_wa2    => x2_m_reg.write_addr_2,
       m_mem_rd => x2_m_reg.control.memory_read,
       m_res1   => x2_m_reg.result_1,
-      m_res2   => x2_m_reg.result_2,
       m_q      => mem_ram_data,
       w_we1    => m_w_reg.control.write_port_1_enable,
-      w_we2    => m_w_reg.control.write_port_2_enable,
-      w_swap   => m_w_reg.control.swap_write_addresses,
       w_wa1    => m_w_reg.write_addr_1,
-      w_wa2    => m_w_reg.write_addr_2,
       w_res1   => m_w_reg.result_1,
-      w_res2   => m_w_reg.result_2,
       fa       => forwarded_operand_a,
       fb       => forwarded_operand_b,
       sel_a    => forward_select_a,
@@ -422,12 +427,10 @@ begin
   x1x2_in <= (
     control               => d_x1_reg.control,
     result_1              => execute1_result_1,
-    result_2              => forwarded_operand_b,
     operand_a             => forwarded_operand_a,
     operand_b             => forwarded_operand_b,
     immediate             => d_x1_reg.immediate,
     write_addr_1          => d_x1_reg.write_addr_1,
-    write_addr_2          => d_x1_reg.write_addr_2,
     link_address          => d_x1_reg.link_address);
 
   u_x1_x2 : entity work.x1_x2
@@ -487,9 +490,7 @@ begin
   x2m_in <= (
     control               => x1_x2_reg.control,
     result_1              => x1_x2_reg.result_1,
-    result_2              => x1_x2_reg.result_2,
-    write_addr_1          => x1_x2_reg.write_addr_1,
-    write_addr_2          => x1_x2_reg.write_addr_2);
+    write_addr_1          => x1_x2_reg.write_addr_1);
 
   u_x2_m : entity work.x2_m
     port map (
@@ -508,9 +509,7 @@ begin
   mw_in <= (
     control               => x2_m_reg.control,
     result_1              => memory_stage_result,
-    result_2              => x2_m_reg.result_2,
-    write_addr_1          => x2_m_reg.write_addr_1,
-    write_addr_2          => x2_m_reg.write_addr_2);
+    write_addr_1          => x2_m_reg.write_addr_1);
 
   u_m_w : entity work.m_w
     port map (

@@ -38,6 +38,7 @@ architecture sim of tb_top is
   signal in_port  : word_t := (others => '0');
   signal out_port : word_t;
   signal regs     : reg_array_t;
+  signal rmap     : rename_map_t;
   signal pc_out   : word_t;
   signal sp_out   : word_t;
   signal ccr_out  : std_logic_vector(3 downto 0);
@@ -48,6 +49,8 @@ architecture sim of tb_top is
                              x"00000007", x"0000000C", x"00000004", x"00000001");
 begin
   clk <= not clk after 5 ns;
+
+  rmap <= << signal dut.rename_map : rename_map_t >>;
 
   dut : entity work.top
     generic map (PROG => prog_smoke)
@@ -83,8 +86,8 @@ begin
     wait for 1 ns;
 
     for i in 0 to 7 loop
-      check_eq(regs(i), EXP_R(i), "R" & integer'image(i), errs);
-      check(not is_x(regs(i)), "R" & integer'image(i) & " not X", errs);
+      check_eq(regs(to_integer(unsigned(rmap(i)))), EXP_R(i), "R" & integer'image(i), errs);
+      check(not is_x(regs(to_integer(unsigned(rmap(i))))), "R" & integer'image(i) & " not X", errs);
     end loop;
     check_eq(sp_out, x"00000FFF", "SP balanced", errs);
     check_eq(ccr_out, "0000", "CCR", errs);

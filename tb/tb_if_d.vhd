@@ -16,8 +16,7 @@ architecture sim of tb_if_d is
   signal reset : std_logic := '1';
   signal en    : std_logic := '1';
   signal flush : std_logic := '0';
-  signal d_in  : if_d_t := (valid => '1', is_vec => '0', pc => WORD_ZERO, pc1 => WORD_ZERO);
-  signal d_out : if_d_t;
+  signal d_in  : if_d_t := (is_valid => '1', is_interrupt_vector => '0', program_counter => WORD_ZERO, next_program_counter => WORD_ZERO);  signal d_out : if_d_t;
 begin
   clk <= not clk after 5 ns;
 

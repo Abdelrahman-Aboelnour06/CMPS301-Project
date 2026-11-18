@@ -158,7 +158,9 @@ architecture sim of tb_hazards is
   signal reset    : std_logic := '1';
   signal intr     : std_logic_vector(0 to NCORE-1) := (others => '0');
   signal out_port : word_arr_t;
+  type rmap_arr_t  is array (0 to NCORE-1) of rename_map_t;
   signal regs     : regs_arr_t;
+  signal rmaps    : rmap_arr_t;
   signal pc_out   : word_arr_t;
   signal sp_out   : word_arr_t;
   signal ccr_out  : ccr_arr_t;
@@ -174,6 +176,7 @@ begin
                 in_port => INPUT(k), out_port => out_port(k),
                 R_values => regs(k), pc_out => pc_out(k), sp_out => sp_out(k),
                 ccr_out => ccr_out(k), halted => halted(k));
+    rmaps(k) <= << signal dut.rename_map : rename_map_t >>;
   end generate;
 
   -- cycle counter (edge index t = 0 is the first edge with reset low)
@@ -211,7 +214,7 @@ begin
     wait for 1 ns;
     for k in 0 to NCORE-1 loop
       for r in 0 to 7 loop
-        check_eq(regs(k)(r), EXP_R(k)(r), NAMES(k) & " R" & integer'image(r), errs);
+        check_eq(regs(k)(to_integer(unsigned(rmaps(k)(r)))), EXP_R(k)(r), NAMES(k) & " R" & integer'image(r), errs);
       end loop;
       check_eq(sp_out(k), x"00000FFF", NAMES(k) & " SP", errs);
       check_eq(ccr_out(k), EXP_CCR(k), NAMES(k) & " CCR", errs);

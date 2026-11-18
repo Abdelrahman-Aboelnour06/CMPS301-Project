@@ -110,6 +110,7 @@ architecture sim of tb_system is
   signal in_port  : word_t := hex2word(IN_VALUE);
   signal out_port : word_t;
   signal regs     : reg_array_t;
+  signal rmap     : rename_map_t;
   signal pc_out   : word_t;
   signal sp_out   : word_t;
   signal ccr_out  : std_logic_vector(3 downto 0);
@@ -117,6 +118,8 @@ architecture sim of tb_system is
   signal cycle    : natural := 0;
 begin
   clk <= not clk after 5 ns;
+
+  rmap <= << signal dut.rename_map : rename_map_t >>;
 
   dut : entity work.top
     generic map (PROG => PROG)
@@ -214,14 +217,14 @@ begin
       if nl > 0 and hl > 0 then
         exp := hex2word(hs(1 to hl));
         known := true;
-        if    name(1 to nl) = "R0" then got := regs(0);
-        elsif name(1 to nl) = "R1" then got := regs(1);
-        elsif name(1 to nl) = "R2" then got := regs(2);
-        elsif name(1 to nl) = "R3" then got := regs(3);
-        elsif name(1 to nl) = "R4" then got := regs(4);
-        elsif name(1 to nl) = "R5" then got := regs(5);
-        elsif name(1 to nl) = "R6" then got := regs(6);
-        elsif name(1 to nl) = "R7" then got := regs(7);
+        if    name(1 to nl) = "R0" then got := regs(to_integer(unsigned(rmap(0))));
+        elsif name(1 to nl) = "R1" then got := regs(to_integer(unsigned(rmap(1))));
+        elsif name(1 to nl) = "R2" then got := regs(to_integer(unsigned(rmap(2))));
+        elsif name(1 to nl) = "R3" then got := regs(to_integer(unsigned(rmap(3))));
+        elsif name(1 to nl) = "R4" then got := regs(to_integer(unsigned(rmap(4))));
+        elsif name(1 to nl) = "R5" then got := regs(to_integer(unsigned(rmap(5))));
+        elsif name(1 to nl) = "R6" then got := regs(to_integer(unsigned(rmap(6))));
+        elsif name(1 to nl) = "R7" then got := regs(to_integer(unsigned(rmap(7))));
         elsif name(1 to nl) = "SP" then got := sp_out;
         elsif name(1 to nl) = "CCR" then got := x"0000000" & ccr_out;
         elsif name(1 to nl) = "OUT" then got := out_port;

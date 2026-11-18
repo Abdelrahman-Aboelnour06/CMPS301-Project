@@ -35,8 +35,8 @@ begin
     c.read_port_1_uses_rdst := '1';
     c.read_port_2_uses_rsrc1 := '1';
     c.write_port_1_enable := '1';
-    c.write_port_2_enable := '1';
-    c.swap_write_addresses := '1';
+    c.write_port_1_enable := '1';
+    c.write_port_1_enable := '1';
     c_swap <= c;
     wait;
   end process;
@@ -51,17 +51,15 @@ begin
   begin
     en <= '1';
     wait for 1 ns;
-    d_in.control <= c_swap; d_in.result_1 <= x"80000000"; d_in.result_2 <= x"7FFFFFFF";
-    d_in.write_addr_1 <= "000"; d_in.write_addr_2 <= "111";
+    d_in.control <= c_swap; d_in.result_1 <= x"80000000";
+    d_in.write_addr_1 <= "000";
     tick;
     check(d_out.control = CTRL_NOP, "reset bubble", errs);
     check_eq(d_out.result_1, x"00000000", "reset res1", errs);
     reset <= '0'; tick;
     check(d_out.control = c_swap, "capture ctrl", errs);
     check_eq(d_out.result_1, x"80000000", "res1 min", errs);
-    check_eq(d_out.result_2, x"7FFFFFFF", "res2 max", errs);
     check_eq(d_out.write_addr_1, "000", "wa1 R0", errs);
-    check_eq(d_out.write_addr_2, "111", "wa2 R7", errs);
 
     en <= '0'; d_in.result_1 <= x"00000000"; d_in.control <= CTRL_NOP; tick;
     check(d_out.control = c_swap, "hold ctrl", errs);

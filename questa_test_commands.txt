@@ -1,0 +1,44 @@
+# =============================================================================
+# CMPS 301 -- QuestaSim Copy-Paste Commands (PowerShell, run from cmps301 root)
+# =============================================================================
+
+# --- 1. Compile everything (RTL as VHDL-93, Testbenches as VHDL-2008) ---
+vsim -c -do "do scripts/questa_compile.do; quit"
+
+# --- 2. Unit & Integration Testbenches ---
+vsim -c work.tb_pc -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_pc_mux -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_instr_mem -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_if_d -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_regfile -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_control -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_hazard_unit -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_d_x1 -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_forward_unit -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_alu -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_ccr -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_x1_x2 -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_addr_adder -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_sp_unit -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_branch_check -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_x2_m -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_data_mem -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_m_w -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_reset_fsm -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_intr_fsm -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_top -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c work.tb_hazards -do "set NumericStdNoWarnings 1; run -all; quit"
+
+# --- 3. System Tests (tb_system) ---
+vsim -c "-gMEM_FILE=programs/test2.mem" "-gGOLDEN_FILE=programs/test2.golden" "-gIN_VALUE=00000300" "-gIRQ_CYCLE=-1" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c "-gMEM_FILE=programs/isr_pulse.mem" "-gGOLDEN_FILE=programs/isr_pulse.golden" "-gIN_VALUE=00000000" "-gIRQ_CYCLE=14" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c "-gMEM_FILE=programs/poll2.mem" "-gGOLDEN_FILE=programs/poll2.golden" "-gIN_VALUE=00000000" "-gIRQ_CYCLE=30" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+
+# --- 4. TA Tests (after assembling with Assembler/asm.exe) ---
+vsim -c "-gMEM_FILE=programs/ta_test1.mem" "-gGOLDEN_FILE=programs/ta_test1.golden" "-gIN_VALUE=12345678" "-gIRQ_CYCLE=-1" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c "-gMEM_FILE=programs/ta_test2.mem" "-gGOLDEN_FILE=programs/ta_test2.golden" "-gIN_VALUE=00000000" "-gIRQ_CYCLE=-1" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+
+# --- 5. GUI Waveform Run (run inside QuestaSim Transcript window) ---
+# do scripts/questa_compile.do
+# do scripts/questa_run.do tb_top
+# vsim -gMEM_FILE=programs/test2.mem -gGOLDEN_FILE=programs/test2.golden -gIN_VALUE=00000300 -gIRQ_CYCLE=-1 work.tb_system

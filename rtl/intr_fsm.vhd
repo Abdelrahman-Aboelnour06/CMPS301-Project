@@ -57,13 +57,6 @@ begin
               m_ctrl.is_return     or m_ctrl.is_return_from_interrupt     or
               w_ctrl.is_return     or w_ctrl.is_return_from_interrupt;
 
-  -- BUG-001 fix: a Jcc in D/X1/X2 no longer blocks injection.
-  --   Jcc in X1 -> D always holds a bubble (the Jcc's D redirect flushed IF/D).
-  --   Jcc in X2 -> 'not mispredict' already proves D is on the correct path.
-  --   Jcc in D  -> replaced by the micro-op; it re-executes after RTI with
-  --                the restored CCR.
-  -- With the old Jcc gate, INTR.IN starved forever in any loop of <= 2
-  -- instructions closed by a Jcc (e.g. L: AND R2,R1,R1 ; JZ L).
   calm_i <= d_real and not ret_busy and
             not mispredict and not boot_busy;
 
@@ -81,13 +74,6 @@ begin
       else
         prev_r <= intr_in;
 
-        -- BUG-002 fix: every rising edge is latched, including edges that
-        -- arrive while in_ISR = 1. The request waits (no nesting) and is
-        -- injected after RTI clears in_ISR. The latch is cleared when the
-        -- micro-op is injected: once injected it cannot be flushed (inject
-        -- needs no mispredict, the micro-op reads no register so it cannot
-        -- stall, and a Jcc in X1 implies a bubble in D), so a new edge in
-        -- the following cycles is a new request, not merged with this one.
         if intr_in = '1' and prev_r = '0' then
           pending_r <= '1';
         elsif inject_i = '1' then

@@ -22,9 +22,9 @@ entity tb_system is
   generic (
     MEM_FILE    : string  := "programs/demo.mem";
     GOLDEN_FILE : string  := "programs/demo.golden";
-    IN_VALUE    : string  := "0000ABCD";
-    IRQ_CYCLE   : integer := 40;
-    MAX_CYCLES  : natural := 20000
+    IN_VALUE    : string  := "00000000";
+    IRQ_CYCLE   : integer := -1;
+    MAX_CYCLES  : natural := 200000
   );
 end entity tb_system;
 

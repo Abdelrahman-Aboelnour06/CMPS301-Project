@@ -50,45 +50,46 @@ begin
   begin
     en <= '1';
     wait for 1 ns;
-    d_in.ctrl <= c_add; d_in.a <= x"11111111"; d_in.b <= x"22222222";
-    d_in.ra1 <= "001"; d_in.ra2 <= "010"; d_in.wa1 <= "011"; d_in.wa2 <= "100";
-    d_in.imm <= x"FFFF8000"; d_in.link <= x"00000ABC";
+    d_in.control <= c_add; d_in.operand_a <= x"11111111"; d_in.operand_b <= x"22222222";
+    d_in.read_addr_1 <= "001"; d_in.read_addr_2 <= "010"; d_in.write_addr_1 <= "011"; d_in.write_addr_2 <= "100";
+    d_in.immediate <= x"8000"; d_in.immediate_unsigned <= '1'; d_in.link_address <= x"00000ABC";
     tick;
-    check(d_out.ctrl = CTRL_NOP, "reset -> bubble", errs);
-    check_eq(d_out.a, x"00000000", "reset a", errs);
+    check(d_out.control = CTRL_NOP, "reset -> bubble", errs);
+    check_eq(d_out.operand_a, x"00000000", "reset a", errs);
 
     reset <= '0'; tick;
-    check(d_out.ctrl = c_add, "capture ctrl", errs);
-    check_eq(d_out.a, x"11111111", "capture a", errs);
-    check_eq(d_out.b, x"22222222", "capture b", errs);
-    check_eq(d_out.ra1, "001", "capture ra1", errs);
-    check_eq(d_out.ra2, "010", "capture ra2", errs);
-    check_eq(d_out.wa1, "011", "capture wa1", errs);
-    check_eq(d_out.wa2, "100", "capture wa2", errs);
-    check_eq(d_out.imm, x"FFFF8000", "capture imm (min)", errs);
-    check_eq(d_out.link, x"00000ABC", "capture link", errs);
+    check(d_out.control = c_add, "capture ctrl", errs);
+    check_eq(d_out.operand_a, x"11111111", "capture a", errs);
+    check_eq(d_out.operand_b, x"22222222", "capture b", errs);
+    check_eq(d_out.read_addr_1, "001", "capture ra1", errs);
+    check_eq(d_out.read_addr_2, "010", "capture ra2", errs);
+    check_eq(d_out.write_addr_1, "011", "capture wa1", errs);
+    check_eq(d_out.write_addr_2, "100", "capture wa2", errs);
+    check_eq(d_out.immediate, x"8000", "capture imm (min)", errs);
+    check_sl(d_out.immediate_unsigned, '1', "capture imm_u", errs);
+    check_eq(d_out.link_address, x"00000ABC", "capture link", errs);
 
     -- hold
-    en <= '0'; d_in.a <= x"FFFFFFFF"; d_in.ctrl <= CTRL_NOP; tick;
-    check(d_out.ctrl = c_add, "hold ctrl", errs);
-    check_eq(d_out.a, x"11111111", "hold a", errs);
+    en <= '0'; d_in.operand_a <= x"FFFFFFFF"; d_in.control <= CTRL_NOP; tick;
+    check(d_out.control = c_add, "hold ctrl", errs);
+    check_eq(d_out.operand_a, x"11111111", "hold a", errs);
 
     -- flush while en = 0: bubble inserted anyway
     flush <= '1'; tick;
-    check(d_out.ctrl = CTRL_NOP, "flush beats hold", errs);
-    check_eq(d_out.a, x"FFFFFFFF", "data captured on flush", errs);
+    check(d_out.control = CTRL_NOP, "flush beats hold", errs);
+    check_eq(d_out.operand_a, x"FFFFFFFF", "data captured on flush", errs);
 
     -- flush with en = 1 and a valid control word
-    en <= '1'; d_in.ctrl <= c_add; tick;
-    check(d_out.ctrl = CTRL_NOP, "flush -> bubble", errs);
-    check_sl(d_out.ctrl.write_port_1_enable, '0', "bubble does not write", errs);
+    en <= '1'; d_in.control <= c_add; tick;
+    check(d_out.control = CTRL_NOP, "flush -> bubble", errs);
+    check_sl(d_out.control.write_port_1_enable, '0', "bubble does not write", errs);
 
     flush <= '0'; tick;
-    check(d_out.ctrl = c_add, "normal again", errs);
-    check_eq(d_out.a, x"FFFFFFFF", "max a", errs);
+    check(d_out.control = c_add, "normal again", errs);
+    check_eq(d_out.operand_a, x"FFFFFFFF", "max a", errs);
 
     reset <= '1'; tick;
-    check(d_out.ctrl = CTRL_NOP, "reset again", errs);
+    check(d_out.control = CTRL_NOP, "reset again", errs);
     finish_tb("tb_d_x1", errs);
     wait;
   end process;

@@ -42,57 +42,59 @@ architecture rtl of top is
   signal boot_state     : std_logic_vector(1 downto 0) := "00";
 
   -- ------------------------------------------------------------ Fetch (F)
-  signal pc_q           : word_t := WORD_ZERO;
-  signal pc_p1          : word_t := WORD_ZERO;
-  signal pc_next        : word_t := WORD_ZERO;
-  signal pc_src         : std_logic_vector(2 downto 0) := "000";
-  signal pc_en          : std_logic := '0';
-  signal ram_addr_a     : maddr_t := (others => '0');
-  signal ram_en_a       : std_logic := '1';
-  signal q_a            : word_t := WORD_ZERO;
-  signal instr          : word_t := WORD_ZERO;
+  signal current_pc           : word_t := WORD_ZERO;
+  signal pc_plus_1          : word_t := WORD_ZERO;
+  signal next_pc        : word_t := WORD_ZERO;
+  signal pc_select         : std_logic_vector(2 downto 0) := "000";
+  signal pc_write_enable          : std_logic := '0';
+  signal fetch_ram_addr     : maddr_t := (others => '0');
+  signal fetch_ram_enable       : std_logic := '1';
+  signal fetch_ram_data            : word_t := WORD_ZERO;
+  signal instruction_word          : word_t := WORD_ZERO;
   signal vec_fetch_next : std_logic := '0';
   signal vec_fetch_r    : std_logic := '0';
 
   -- ------------------------------------------------------------ IF/D Bus
   signal ifd_in         : if_d_t := IF_D_NOP;
-  signal ifd            : if_d_t := IF_D_NOP;
+  signal if_d_reg            : if_d_t := IF_D_NOP;
 
   -- ------------------------------------------------------------ Decode (D)
   signal opcode         : opcode_t := (others => '0');
   signal f_rdst         : raddr_t := "000";
   signal f_rs1          : raddr_t := "000";
   signal f_rs2          : raddr_t := "000";
-  signal d_real         : std_logic := '0';
-  signal d_vec_word     : std_logic := '0';
-  signal d_inject       : std_logic := '0';
+  signal decode_is_real_instr         : std_logic := '0';
+  signal decode_is_vector_word     : std_logic := '0';
+  signal decode_inject_irq       : std_logic := '0';
   signal ctrl_raw       : ctrl_t := CTRL_NOP;
   signal ctrl_d         : ctrl_t := CTRL_NOP;
-  signal d_ra1          : raddr_t := "000";
-  signal d_ra2          : raddr_t := "000";
-  signal rf_rd1         : word_t := WORD_ZERO;
-  signal rf_rd2         : word_t := WORD_ZERO;
-  signal d_imm          : word_t := WORD_ZERO;
-  signal d_imm_z        : word_t := WORD_ZERO;
-  signal d_link         : word_t := WORD_ZERO;
-  signal d_vec_int      : word_t := WORD_ZERO;
-  signal d_target       : word_t := WORD_ZERO;
-  signal d_redirect_req : std_logic := '0';
+  signal decode_read_addr_1          : raddr_t := "000";
+  signal decode_read_addr_2          : raddr_t := "000";
+  signal regfile_read_data_1         : word_t := WORD_ZERO;
+  signal regfile_read_data_2         : word_t := WORD_ZERO;
+  signal decode_immediate          : imm16_t := IMM16_ZERO;
+  signal decode_immediate_unsigned        : std_logic := '0';
+  signal decode_jump_target_imm        : word_t := WORD_ZERO;
+  signal decode_link_address         : word_t := WORD_ZERO;
+  signal decode_sw_int_vector_addr      : word_t := WORD_ZERO;
+  signal decode_branch_target       : word_t := WORD_ZERO;
+  signal decode_redirect_request : std_logic := '0';
   signal regs           : reg_array_t := (others => WORD_ZERO);
 
   -- ------------------------------------------------------------ D/X1 Bus
   signal dx1_in         : d_x1_t := D_X1_NOP;
-  signal dx1            : d_x1_t := D_X1_NOP;
+  signal d_x1_reg            : d_x1_t := D_X1_NOP;
 
   -- ------------------------------------------------------------ Execute-1 (X1)
-  signal fa, fb         : word_t := WORD_ZERO;
-  signal fsel_a, fsel_b : std_logic_vector(1 downto 0) := "00";
+  signal forwarded_operand_a, forwarded_operand_b         : word_t := WORD_ZERO;
+  signal forward_select_a, forward_select_b : std_logic_vector(1 downto 0) := "00";
+  signal x1_imm_ext     : word_t := WORD_ZERO;
   signal alu_b, alu_y   : word_t := WORD_ZERO;
   signal alu_z          : std_logic := '0';
   signal alu_n          : std_logic := '0';
   signal alu_c          : std_logic := '0';
   signal alu_cv         : std_logic := '0';
-  signal x1_res1        : word_t := WORD_ZERO;
+  signal execute1_result_1        : word_t := WORD_ZERO;
   signal ccr_zn_we      : std_logic := '0';
   signal ccr_c_we       : std_logic := '0';
   signal ccr_save       : std_logic := '0';
@@ -103,29 +105,29 @@ architecture rtl of top is
 
   -- ------------------------------------------------------------ X1/X2 Bus
   signal x1x2_in        : x1_x2_t := X1_X2_NOP;
-  signal x1x2           : x1_x2_t := X1_X2_NOP;
+  signal x1_x2_reg           : x1_x2_t := X1_X2_NOP;
 
   -- ------------------------------------------------------------ Execute-2 (X2)
-  signal x2_base        : word_t := WORD_ZERO;
-  signal x2_ea          : word_t := WORD_ZERO;
-  signal sp_val         : word_t := SP_RESET;
-  signal sp_addr        : word_t := SP_RESET;
-  signal x2_maddr       : word_t := WORD_ZERO;
-  signal x2_sdata       : word_t := WORD_ZERO;
+  signal execute2_base_addr        : word_t := WORD_ZERO;
+  signal execute2_effective_addr          : word_t := WORD_ZERO;
+  signal stack_pointer_value         : word_t := SP_RESET;
+  signal stack_pointer_mem_addr        : word_t := SP_RESET;
+  signal execute2_mem_addr       : word_t := WORD_ZERO;
+  signal execute2_store_data       : word_t := WORD_ZERO;
   signal taken          : std_logic := '0';
   signal mispredict     : std_logic := '0';
 
   -- ------------------------------------------------------------ X2/M Bus
   signal x2m_in         : x2_m_t := X2_M_NOP;
-  signal x2m            : x2_m_t := X2_M_NOP;
+  signal x2_m_reg            : x2_m_t := X2_M_NOP;
 
   -- ------------------------------------------------------------ Memory (M)
-  signal q_b            : word_t := WORD_ZERO;
-  signal m_final        : word_t := WORD_ZERO;
+  signal mem_ram_data            : word_t := WORD_ZERO;
+  signal memory_stage_result        : word_t := WORD_ZERO;
 
   -- ------------------------------------------------------------ M/W Bus
   signal mw_in          : m_w_t := M_W_NOP;
-  signal mw             : m_w_t := M_W_NOP;
+  signal m_w_reg             : m_w_t := M_W_NOP;
 
   -- ------------------------------------------------------------ Write-Back (W)
   signal out_r          : word_t := WORD_ZERO;
@@ -162,35 +164,35 @@ begin
   -- =========================================================================
   u_pc_mux : entity work.pc_mux
     port map (
-      pc_plus1    => pc_p1,
-      boot_target => q_a,
-      w_target    => mw.res1,
-      x2_target   => x1x2.link,
-      d_target    => d_target,
+      pc_plus1    => pc_plus_1,
+      boot_target => fetch_ram_data,
+      w_target    => m_w_reg.result_1,
+      x2_target   => x1_x2_reg.link_address,
+      d_target    => decode_branch_target,
       sel_boot    => boot_load,
       sel_w       => w_load,
       sel_x2      => mispredict,
       sel_d       => d_redirect,
-      pc_next     => pc_next,
-      src         => pc_src);
+      pc_next     => next_pc,
+      src         => pc_select);
 
   u_pc : entity work.pc
     port map (
       clk      => clk,
       reset    => reset,
-      en       => pc_en,
-      pc_next  => pc_next,
-      pc_q     => pc_q,
-      pc_plus1 => pc_p1);
+      en       => pc_write_enable,
+      pc_next  => next_pc,
+      pc_q     => current_pc,
+      pc_plus1 => pc_plus_1);
 
   u_instr_mem : entity work.instr_mem
     port map (
-      pc       => pc_q,
+      pc       => current_pc,
       hold     => stall,
-      ram_addr => ram_addr_a,
-      ram_en   => ram_en_a,
-      ram_q    => q_a,
-      instr    => instr);
+      ram_addr => fetch_ram_addr,
+      ram_en   => fetch_ram_enable,
+      ram_q    => fetch_ram_data,
+      instr    => instruction_word);
 
   -- Track whether the word being fetched next cycle is an INT/IRQ vector
   vec_fetch_next <= d_redirect and (ctrl_d.is_software_interrupt or ctrl_d.is_hardware_interrupt);
@@ -207,53 +209,54 @@ begin
   end process;
 
   ifd_in <= (
-    valid  => '1',
-    is_vec => vec_fetch_r,
-    pc     => pc_q,
-    pc1    => pc_p1);
+    is_valid              => '1',
+    is_interrupt_vector   => vec_fetch_r,
+    program_counter       => current_pc,
+    next_program_counter  => pc_plus_1);
 
   u_if_d : entity work.if_d
     port map (
       clk   => clk,
       reset => reset,
-      en    => ram_en_a,              -- = not stall
+      en    => fetch_ram_enable,              -- = not stall
       flush => ifd_flush,
       d_in  => ifd_in,
-      d_out => ifd);
+      d_out => if_d_reg);
 
   -- =========================================================================
   -- 2. DECODE STAGE (D) & D/X1 PIPELINE REGISTER
   -- =========================================================================
-  opcode <= instr(31 downto 26);
-  f_rdst <= instr(25 downto 23);
-  f_rs1  <= instr(22 downto 20);
-  f_rs2  <= instr(19 downto 17);
+  opcode <= instruction_word(31 downto 26);
+  f_rdst <= instruction_word(25 downto 23);
+  f_rs1  <= instruction_word(22 downto 20);
+  f_rs2  <= instruction_word(19 downto 17);
 
-  d_real     <= ifd.valid and not ifd.is_vec;
-  d_vec_word <= ifd.valid and ifd.is_vec;
+  decode_is_real_instr     <= if_d_reg.is_valid and not if_d_reg.is_interrupt_vector;
+  decode_is_vector_word <= if_d_reg.is_valid and if_d_reg.is_interrupt_vector;
 
   u_control : entity work.control
     port map (
       opcode   => opcode,
-      valid    => d_real,
-      inject   => d_inject,
+      valid    => decode_is_real_instr,
+      inject   => decode_inject_irq,
       ctrl_raw => ctrl_raw,
       ctrl     => ctrl_d);
 
-  d_ra1 <= f_rdst when ctrl_d.read_port_1_uses_rdst  = '1' else f_rs1;
-  d_ra2 <= f_rs1  when ctrl_d.read_port_2_uses_rsrc1 = '1' else f_rs2;
+  decode_read_addr_1 <= f_rdst when ctrl_d.read_port_1_uses_rdst  = '1' else f_rs1;
+  decode_read_addr_2 <= f_rs1  when ctrl_d.read_port_2_uses_rsrc1 = '1' else f_rs2;
 
-  d_imm     <= zext16(instr(15 downto 0)) when opcode = OP_LDM else sext16(instr(15 downto 0));
-  d_imm_z   <= zext16(instr(15 downto 0));
-  d_vec_int <= x"0000000" & "001" & instr(16);             -- 2 + index
-  d_link    <= ifd.pc when ctrl_d.is_hardware_interrupt = '1' else ifd.pc1;
+  decode_immediate     <= instruction_word(15 downto 0);
+  decode_immediate_unsigned   <= '1' when opcode = OP_LDM else '0';
+  decode_jump_target_imm   <= zext16(instruction_word(15 downto 0));
+  decode_sw_int_vector_addr <= x"0000000" & "001" & instruction_word(16);             -- 2 + index
+  decode_link_address    <= if_d_reg.program_counter when ctrl_d.is_hardware_interrupt = '1' else if_d_reg.next_program_counter;
 
-  d_target <= instr       when d_vec_word                   = '1' else
+  decode_branch_target <= instruction_word       when decode_is_vector_word                   = '1' else
               x"00000001" when ctrl_d.is_hardware_interrupt = '1' else
-              d_vec_int   when ctrl_d.is_software_interrupt = '1' else
-              d_imm_z;
+              decode_sw_int_vector_addr   when ctrl_d.is_software_interrupt = '1' else
+              decode_jump_target_imm;
 
-  d_redirect_req <= d_vec_word or ctrl_d.is_jump or ctrl_d.is_call or
+  decode_redirect_request <= decode_is_vector_word or ctrl_d.is_jump or ctrl_d.is_call or
                     ctrl_d.is_conditional_jump or ctrl_d.is_software_interrupt or
                     ctrl_d.is_hardware_interrupt;
 
@@ -261,17 +264,17 @@ begin
     port map (
       clk      => clk,
       reset    => reset,
-      ra1      => d_ra1,
-      ra2      => d_ra2,
-      rd1      => rf_rd1,
-      rd2      => rf_rd2,
-      wa1      => mw.wa1,
-      wd1      => mw.res1,
-      we1      => mw.ctrl.write_port_1_enable,
-      wa2      => mw.wa2,
-      wd2      => mw.res2,
-      we2      => mw.ctrl.write_port_2_enable,
-      swap     => mw.ctrl.swap_write_addresses,
+      ra1      => decode_read_addr_1,
+      ra2      => decode_read_addr_2,
+      rd1      => regfile_read_data_1,
+      rd2      => regfile_read_data_2,
+      wa1      => m_w_reg.write_addr_1,
+      wd1      => m_w_reg.result_1,
+      we1      => m_w_reg.control.write_port_1_enable,
+      wa2      => m_w_reg.write_addr_2,
+      wd2      => m_w_reg.result_2,
+      we2      => m_w_reg.control.write_port_2_enable,
+      swap     => m_w_reg.control.swap_write_addresses,
       regs_out => regs);
 
   u_intr_fsm : entity work.intr_fsm
@@ -279,15 +282,15 @@ begin
       clk          => clk,
       reset        => reset,
       intr_in      => intr_in,
-      d_real       => d_real,
+      d_real       => decode_is_real_instr,
       d_ctrl_raw   => ctrl_raw,
-      x1_ctrl      => dx1.ctrl,
-      x2_ctrl      => x1x2.ctrl,
-      m_ctrl       => x2m.ctrl,
-      w_ctrl       => mw.ctrl,
+      x1_ctrl      => d_x1_reg.control,
+      x2_ctrl      => x1_x2_reg.control,
+      m_ctrl       => x2_m_reg.control,
+      w_ctrl       => m_w_reg.control,
       mispredict   => mispredict,
       boot_busy    => boot_busy,
-      inject       => d_inject,
+      inject       => decode_inject_irq,
       calm         => intr_calm,
       intr_pending => intr_pending,
       in_isr       => in_isr);
@@ -297,14 +300,14 @@ begin
       clk            => clk,
       reset          => reset,
       d_ctrl         => ctrl_d,
-      d_ra1          => d_ra1,
-      d_ra2          => d_ra2,
-      d_redirect_req => d_redirect_req,
-      x1_ctrl        => dx1.ctrl,
-      x1_wa1         => dx1.wa1,
-      x2_ctrl        => x1x2.ctrl,
-      m_ctrl         => x2m.ctrl,
-      w_ctrl         => mw.ctrl,
+      d_ra1          => decode_read_addr_1,
+      d_ra2          => decode_read_addr_2,
+      d_redirect_req => decode_redirect_request,
+      x1_ctrl        => d_x1_reg.control,
+      x1_wa1         => d_x1_reg.write_addr_1,
+      x2_ctrl        => x1_x2_reg.control,
+      m_ctrl         => x2_m_reg.control,
+      w_ctrl         => m_w_reg.control,
       mispredict     => mispredict,
       boot_busy      => boot_busy,
       boot_load      => boot_load,
@@ -317,18 +320,19 @@ begin
       ifd_flush      => ifd_flush,
       dx1_flush      => dx1_flush,
       x1x2_flush     => x1x2_flush,
-      pc_en          => pc_en);
+      pc_en          => pc_write_enable);
 
   dx1_in <= (
-    ctrl => ctrl_d,
-    a    => rf_rd1,
-    b    => rf_rd2,
-    ra1  => d_ra1,
-    ra2  => d_ra2,
-    wa1  => f_rdst,
-    wa2  => f_rs1,
-    imm  => d_imm,
-    link => d_link);
+    control               => ctrl_d,
+    operand_a             => regfile_read_data_1,
+    operand_b             => regfile_read_data_2,
+    read_addr_1           => decode_read_addr_1,
+    read_addr_2           => decode_read_addr_2,
+    write_addr_1          => f_rdst,
+    write_addr_2          => f_rs1,
+    immediate             => decode_immediate,
+    immediate_unsigned    => decode_immediate_unsigned,
+    link_address          => decode_link_address);
 
   u_d_x1 : entity work.d_x1
     port map (
@@ -337,67 +341,68 @@ begin
       en    => '1',
       flush => dx1_flush,
       d_in  => dx1_in,
-      d_out => dx1);
+      d_out => d_x1_reg);
 
   -- =========================================================================
   -- 3. EXECUTE-1 STAGE (X1) & X1/X2 PIPELINE REGISTER
   -- =========================================================================
   u_forward : entity work.forward_unit
     port map (
-      ra1      => dx1.ra1,
-      ra2      => dx1.ra2,
-      use_a    => dx1.ctrl.reads_operand_a,
-      use_b    => dx1.ctrl.reads_operand_b,
-      rf_a     => dx1.a,
-      rf_b     => dx1.b,
-      x2_we1   => x1x2.ctrl.write_port_1_enable,
-      x2_we2   => x1x2.ctrl.write_port_2_enable,
-      x2_swap  => x1x2.ctrl.swap_write_addresses,
-      x2_wa1   => x1x2.wa1,
-      x2_wa2   => x1x2.wa2,
-      x2_res1  => x1x2.res1,
-      x2_res2  => x1x2.res2,
-      m_we1    => x2m.ctrl.write_port_1_enable,
-      m_we2    => x2m.ctrl.write_port_2_enable,
-      m_swap   => x2m.ctrl.swap_write_addresses,
-      m_wa1    => x2m.wa1,
-      m_wa2    => x2m.wa2,
-      m_mem_rd => x2m.ctrl.memory_read,
-      m_res1   => x2m.res1,
-      m_res2   => x2m.res2,
-      m_q      => q_b,
-      w_we1    => mw.ctrl.write_port_1_enable,
-      w_we2    => mw.ctrl.write_port_2_enable,
-      w_swap   => mw.ctrl.swap_write_addresses,
-      w_wa1    => mw.wa1,
-      w_wa2    => mw.wa2,
-      w_res1   => mw.res1,
-      w_res2   => mw.res2,
-      fa       => fa,
-      fb       => fb,
-      sel_a    => fsel_a,
-      sel_b    => fsel_b);
+      ra1      => d_x1_reg.read_addr_1,
+      ra2      => d_x1_reg.read_addr_2,
+      use_a    => d_x1_reg.control.reads_operand_a,
+      use_b    => d_x1_reg.control.reads_operand_b,
+      rf_a     => d_x1_reg.operand_a,
+      rf_b     => d_x1_reg.operand_b,
+      x2_we1   => x1_x2_reg.control.write_port_1_enable,
+      x2_we2   => x1_x2_reg.control.write_port_2_enable,
+      x2_swap  => x1_x2_reg.control.swap_write_addresses,
+      x2_wa1   => x1_x2_reg.write_addr_1,
+      x2_wa2   => x1_x2_reg.write_addr_2,
+      x2_res1  => x1_x2_reg.result_1,
+      x2_res2  => x1_x2_reg.result_2,
+      m_we1    => x2_m_reg.control.write_port_1_enable,
+      m_we2    => x2_m_reg.control.write_port_2_enable,
+      m_swap   => x2_m_reg.control.swap_write_addresses,
+      m_wa1    => x2_m_reg.write_addr_1,
+      m_wa2    => x2_m_reg.write_addr_2,
+      m_mem_rd => x2_m_reg.control.memory_read,
+      m_res1   => x2_m_reg.result_1,
+      m_res2   => x2_m_reg.result_2,
+      m_q      => mem_ram_data,
+      w_we1    => m_w_reg.control.write_port_1_enable,
+      w_we2    => m_w_reg.control.write_port_2_enable,
+      w_swap   => m_w_reg.control.swap_write_addresses,
+      w_wa1    => m_w_reg.write_addr_1,
+      w_wa2    => m_w_reg.write_addr_2,
+      w_res1   => m_w_reg.result_1,
+      w_res2   => m_w_reg.result_2,
+      fa       => forwarded_operand_a,
+      fb       => forwarded_operand_b,
+      sel_a    => forward_select_a,
+      sel_b    => forward_select_b);
 
-  alu_b <= dx1.imm when dx1.ctrl.alu_b_uses_immediate = '1' else fb;
+  x1_imm_ext <= zext16(d_x1_reg.immediate) when d_x1_reg.immediate_unsigned = '1' else sext16(d_x1_reg.immediate);
+  alu_b <= x1_imm_ext when d_x1_reg.control.alu_b_uses_immediate = '1' else forwarded_operand_b;
 
   u_alu : entity work.alu
     port map (
-      a     => fa,
+      a     => forwarded_operand_a,
       b     => alu_b,
-      shamt => dx1.imm(4 downto 0),
-      op    => dx1.ctrl.alu_operation,
+      shamt => d_x1_reg.immediate(4 downto 0),
+      op    => d_x1_reg.control.alu_operation,
       y     => alu_y,
       z     => alu_z,
       n     => alu_n,
       c     => alu_c,
       cv    => alu_cv);
 
-  x1_res1 <= in_port when dx1.ctrl.result_from_in_port = '1' else alu_y;
+  execute1_result_1 <= in_port when d_x1_reg.control.result_from_in_port = '1' else alu_y;
 
-  ccr_zn_we   <= dx1.ctrl.update_zero_negative_flags and not mispredict;
-  ccr_c_we    <= dx1.ctrl.update_carry_flag and alu_cv and not mispredict;
-  ccr_save    <= x1x2.ctrl.is_software_interrupt or x1x2.ctrl.is_hardware_interrupt;
-  ccr_restore <= mw.ctrl.is_return_from_interrupt;
+  ccr_zn_we   <= d_x1_reg.control.update_zero_negative_flags and not mispredict;
+  ccr_c_we    <= d_x1_reg.control.update_carry_flag and alu_cv and not mispredict;
+  ccr_save    <= x1_x2_reg.control.is_software_interrupt or x1_x2_reg.control.is_hardware_interrupt;
+  ccr_restore <= m_w_reg.control.is_return_from_interrupt;
 
   u_ccr : entity work.ccr
     port map (
@@ -415,15 +420,15 @@ begin
       shadow_out => shadow_val);
 
   x1x2_in <= (
-    ctrl => dx1.ctrl,
-    res1 => x1_res1,
-    res2 => fb,
-    a    => fa,
-    b    => fb,
-    imm  => dx1.imm,
-    wa1  => dx1.wa1,
-    wa2  => dx1.wa2,
-    link => dx1.link);
+    control               => d_x1_reg.control,
+    result_1              => execute1_result_1,
+    result_2              => forwarded_operand_b,
+    operand_a             => forwarded_operand_a,
+    operand_b             => forwarded_operand_b,
+    immediate             => d_x1_reg.immediate,
+    write_addr_1          => d_x1_reg.write_addr_1,
+    write_addr_2          => d_x1_reg.write_addr_2,
+    link_address          => d_x1_reg.link_address);
 
   u_x1_x2 : entity work.x1_x2
     port map (
@@ -432,35 +437,35 @@ begin
       en    => '1',
       flush => x1x2_flush,
       d_in  => x1x2_in,
-      d_out => x1x2);
+      d_out => x1_x2_reg);
 
   -- =========================================================================
   -- 4. EXECUTE-2 STAGE (X2) & X2/M PIPELINE REGISTER
   -- =========================================================================
-  x2_base <= x1x2.b when x1x2.ctrl.base_address_is_operand_b = '1' else x1x2.a;
+  execute2_base_addr <= x1_x2_reg.operand_b when x1_x2_reg.control.base_address_is_operand_b = '1' else x1_x2_reg.operand_a;
 
   u_addr_adder : entity work.addr_adder
     port map (
-      base   => x2_base,
-      offset => x1x2.imm,
-      ea     => x2_ea);
+      base   => execute2_base_addr,
+      offset => sext16(x1_x2_reg.immediate),
+      ea     => execute2_effective_addr);
 
   u_sp : entity work.sp_unit
     port map (
       clk   => clk,
       reset => reset,
-      dec   => x1x2.ctrl.stack_pointer_decrement,
-      inc   => x1x2.ctrl.stack_pointer_increment,
-      sp    => sp_val,
-      addr  => sp_addr);
+      dec   => x1_x2_reg.control.stack_pointer_decrement,
+      inc   => x1_x2_reg.control.stack_pointer_increment,
+      sp    => stack_pointer_value,
+      addr  => stack_pointer_mem_addr);
 
-  x2_maddr <= sp_addr   when x1x2.ctrl.memory_address_from_sp = '1' else x2_ea;
-  x2_sdata <= x1x2.link when x1x2.ctrl.store_link_address = '1'     else x1x2.a;
+  execute2_mem_addr <= stack_pointer_mem_addr   when x1_x2_reg.control.memory_address_from_sp = '1' else execute2_effective_addr;
+  execute2_store_data <= x1_x2_reg.link_address when x1_x2_reg.control.store_link_address = '1'     else x1_x2_reg.operand_a;
 
   u_branch : entity work.branch_check
     port map (
-      is_jcc     => x1x2.ctrl.is_conditional_jump,
-      cond       => x1x2.ctrl.jump_condition,
+      is_jcc     => x1_x2_reg.control.is_conditional_jump,
+      cond       => x1_x2_reg.control.jump_condition,
       ccr        => ccr_val,
       taken      => taken,
       mispredict => mispredict,
@@ -471,20 +476,20 @@ begin
       INIT => PROG)
     port map (
       clk    => clk,
-      addr_a => ram_addr_a,
-      en_a   => ram_en_a,
-      q_a    => q_a,
-      addr_b => x2_maddr(MEMINDEX-1 downto 0),
-      we_b   => x1x2.ctrl.memory_write,
-      din_b  => x2_sdata,
-      q_b    => q_b);
+      addr_a => fetch_ram_addr,
+      en_a   => fetch_ram_enable,
+      q_a    => fetch_ram_data,
+      addr_b => execute2_mem_addr(MEMINDEX-1 downto 0),
+      we_b   => x1_x2_reg.control.memory_write,
+      din_b  => execute2_store_data,
+      q_b    => mem_ram_data);
 
   x2m_in <= (
-    ctrl => x1x2.ctrl,
-    res1 => x1x2.res1,
-    res2 => x1x2.res2,
-    wa1  => x1x2.wa1,
-    wa2  => x1x2.wa2);
+    control               => x1_x2_reg.control,
+    result_1              => x1_x2_reg.result_1,
+    result_2              => x1_x2_reg.result_2,
+    write_addr_1          => x1_x2_reg.write_addr_1,
+    write_addr_2          => x1_x2_reg.write_addr_2);
 
   u_x2_m : entity work.x2_m
     port map (
@@ -493,19 +498,19 @@ begin
       en    => '1',
       flush => '0',
       d_in  => x2m_in,
-      d_out => x2m);
+      d_out => x2_m_reg);
 
   -- =========================================================================
   -- 5. MEMORY STAGE (M) & M/W PIPELINE REGISTER
   -- =========================================================================
-  m_final <= q_b when x2m.ctrl.memory_read = '1' else x2m.res1;
+  memory_stage_result <= mem_ram_data when x2_m_reg.control.memory_read = '1' else x2_m_reg.result_1;
 
   mw_in <= (
-    ctrl => x2m.ctrl,
-    res1 => m_final,
-    res2 => x2m.res2,
-    wa1  => x2m.wa1,
-    wa2  => x2m.wa2);
+    control               => x2_m_reg.control,
+    result_1              => memory_stage_result,
+    result_2              => x2_m_reg.result_2,
+    write_addr_1          => x2_m_reg.write_addr_1,
+    write_addr_2          => x2_m_reg.write_addr_2);
 
   u_m_w : entity work.m_w
     port map (
@@ -514,7 +519,7 @@ begin
       en    => '1',
       flush => '0',
       d_in  => mw_in,
-      d_out => mw);
+      d_out => m_w_reg);
 
   -- =========================================================================
   -- 6. WRITE-BACK STAGE (W) & ARCHITECTURAL OUTPUTS
@@ -524,16 +529,16 @@ begin
     if rising_edge(clk) then
       if reset = '1' then
         out_r <= WORD_ZERO;
-      elsif mw.ctrl.write_out_port = '1' then
-        out_r <= mw.res1;
+      elsif m_w_reg.control.write_out_port = '1' then
+        out_r <= m_w_reg.result_1;
       end if;
     end if;
   end process;
 
   out_port <= out_r;
   R_values <= regs;
-  pc_out   <= pc_q;
-  sp_out   <= sp_val;
+  pc_out   <= current_pc;
+  sp_out   <= stack_pointer_value;
   ccr_out  <= ccr_val;
   halted   <= halted_i;
 

@@ -37,7 +37,7 @@ DC000000    # 01B: INT  0                ; R6 += 100 (ISR0)
 DC010000    # 029: INT  1                ; ISR1: SETC; RTI (flags restored)
 1C000000    # 02A: HLT
 @080
-8A808000    # 080: LDM  R5, -32768       ; max = most negative 16-bit
+8A800000    # 080: LDM  R5, 0            ; max = 0
 88800200    # 081: LDM  R1, 0x200
 89000008    # 082: LDM  R2, 8
 8E100000    # 083: LDD  R4, 0(R1)        ; 0x83 loop

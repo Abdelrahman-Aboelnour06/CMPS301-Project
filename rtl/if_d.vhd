@@ -32,10 +32,10 @@ begin
       if reset = '1' then
         reg <= IF_D_NOP;
       elsif flush = '1' then
-        reg.valid  <= '0';
-        reg.is_vec <= '0';
-        reg.pc     <= d_in.pc;
-        reg.pc1    <= d_in.pc1;
+        reg.is_valid  <= '0';
+        reg.is_interrupt_vector <= '0';
+        reg.program_counter     <= d_in.program_counter;
+        reg.next_program_counter    <= d_in.next_program_counter;
       elsif en = '1' then
         reg <= d_in;
       end if;

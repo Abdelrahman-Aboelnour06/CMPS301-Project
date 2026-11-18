@@ -51,31 +51,31 @@ begin
   begin
     en <= '1';
     wait for 1 ns;
-    d_in.ctrl <= c_swap; d_in.res1 <= x"80000000"; d_in.res2 <= x"7FFFFFFF";
-    d_in.wa1 <= "000"; d_in.wa2 <= "111";
+    d_in.control <= c_swap; d_in.result_1 <= x"80000000"; d_in.result_2 <= x"7FFFFFFF";
+    d_in.write_addr_1 <= "000"; d_in.write_addr_2 <= "111";
     tick;
-    check(d_out.ctrl = CTRL_NOP, "reset bubble", errs);
-    check_eq(d_out.res1, x"00000000", "reset res1", errs);
+    check(d_out.control = CTRL_NOP, "reset bubble", errs);
+    check_eq(d_out.result_1, x"00000000", "reset res1", errs);
     reset <= '0'; tick;
-    check(d_out.ctrl = c_swap, "capture ctrl", errs);
-    check_eq(d_out.res1, x"80000000", "res1 min", errs);
-    check_eq(d_out.res2, x"7FFFFFFF", "res2 max", errs);
-    check_eq(d_out.wa1, "000", "wa1 R0", errs);
-    check_eq(d_out.wa2, "111", "wa2 R7", errs);
+    check(d_out.control = c_swap, "capture ctrl", errs);
+    check_eq(d_out.result_1, x"80000000", "res1 min", errs);
+    check_eq(d_out.result_2, x"7FFFFFFF", "res2 max", errs);
+    check_eq(d_out.write_addr_1, "000", "wa1 R0", errs);
+    check_eq(d_out.write_addr_2, "111", "wa2 R7", errs);
 
-    en <= '0'; d_in.res1 <= x"00000000"; d_in.ctrl <= CTRL_NOP; tick;
-    check(d_out.ctrl = c_swap, "hold ctrl", errs);
-    check_eq(d_out.res1, x"80000000", "hold res1", errs);
+    en <= '0'; d_in.result_1 <= x"00000000"; d_in.control <= CTRL_NOP; tick;
+    check(d_out.control = c_swap, "hold ctrl", errs);
+    check_eq(d_out.result_1, x"80000000", "hold res1", errs);
 
     flush <= '1'; tick;
-    check(d_out.ctrl = CTRL_NOP, "flush beats hold", errs);
+    check(d_out.control = CTRL_NOP, "flush beats hold", errs);
 
-    flush <= '0'; en <= '1'; d_in.ctrl <= c_swap; tick;
-    check(d_out.ctrl = c_swap, "resume", errs);
-    check_eq(d_out.res1, x"00000000", "zero res1", errs);
+    flush <= '0'; en <= '1'; d_in.control <= c_swap; tick;
+    check(d_out.control = c_swap, "resume", errs);
+    check_eq(d_out.result_1, x"00000000", "zero res1", errs);
 
     reset <= '1'; tick;
-    check(d_out.ctrl = CTRL_NOP, "reset again", errs);
+    check(d_out.control = CTRL_NOP, "reset again", errs);
     finish_tb("tb_m_w", errs);
     wait;
   end process;

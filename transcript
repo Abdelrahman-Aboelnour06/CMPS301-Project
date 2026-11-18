@@ -1,5 +1,5 @@
-# vsim -c work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit" -gGOLDEN_FILE=programs/test2.golden -gMEM_FILE=programs/test2.mem -gIRQ_CYCLE=-1 -gIN_VALUE=00000300 
-# Start time: 20:25:06 on Nov 18,2026
+# vsim -c work.tb_top -do "set NumericStdNoWarnings 1; run -all; quit" 
+# Start time: 21:58:58 on Nov 18,2026
 # ** Note: (vsim-3812) Design is being optimized...
 # //  Questa Sim-64
 # //  Version 2021.1 win64 Jan 19 2021
@@ -22,13 +22,14 @@
 # Loading work.cpu_pkg(body)
 # Loading std.env(body)
 # Loading work.tb_pkg(body)
-# Loading work.tb_system(sim)#1
+# Loading work.tb_top(sim)#1
 # Loading work.top(rtl)#1
-# Loading work.data_mem(rtl)#1
+# Loading work.addr_adder(rtl)#1
 # set NumericStdNoWarnings 1
 # 1
 #  run -all
-# tb_system: programs/test2.mem halted after 55 cycles
-# PASS tb_system
-# End time: 20:25:11 on Nov 18,2026, Elapsed time: 0:00:05
+# ** Note: tb_top: halted after 12 cycles after boot
+#    Time: 296 ns  Iteration: 0  Instance: /tb_top
+# PASS tb_top
+# End time: 21:59:06 on Nov 18,2026, Elapsed time: 0:00:08
 # Errors: 0, Warnings: 0

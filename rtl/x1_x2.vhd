@@ -29,7 +29,7 @@ begin
       elsif flush = '1' or en = '1' then
         reg <= d_in;
         if flush = '1' then
-          reg.ctrl <= CTRL_NOP;
+          reg.control <= CTRL_NOP;
         end if;
       end if;
     end if;

@@ -40,32 +40,34 @@ entity data_mem is
 end entity data_mem;
 
 architecture rtl of data_mem is
-  signal ram  : mem_t := INIT;
+  signal ram : mem_t := INIT;
   attribute ram_init_file : string;
   attribute ram_init_file of ram : signal is "program.mif";
+  attribute ram_style : string;
+  attribute ram_style of ram : signal is "block";
 
-  signal qa_r : word_t := (others => '0');
-  signal qb_r : word_t := (others => '0');
+  signal qa_raw     : word_t    := (others => '0');
+  signal qb_r       : word_t    := (others => '0');
+  signal bypass_a_r : std_logic := '0';
+  signal bypass_d_r : word_t    := (others => '0');
 begin
   process (clk)
   begin
     if rising_edge(clk) then
-      -- Port B write
-      if we_b = '1' then
-        ram(to_integer(unsigned(addr_b))) <= din_b;
-      end if;
-
-      -- Port A read (write-first against Port B)
+      -- Port A: pure BRAM read
       if en_a = '1' then
+        qa_raw <= ram(to_integer(unsigned(addr_a)));
         if we_b = '1' and addr_a = addr_b then
-          qa_r <= din_b;
+          bypass_a_r <= '1';
+          bypass_d_r <= din_b;
         else
-          qa_r <= ram(to_integer(unsigned(addr_a)));
+          bypass_a_r <= '0';
         end if;
       end if;
 
-      -- Port B read (write-first)
+      -- Port B: pure BRAM write-first
       if we_b = '1' then
+        ram(to_integer(unsigned(addr_b))) <= din_b;
         qb_r <= din_b;
       else
         qb_r <= ram(to_integer(unsigned(addr_b)));
@@ -73,6 +75,6 @@ begin
     end if;
   end process;
 
-  q_a <= qa_r;
+  q_a <= bypass_d_r when bypass_a_r = '1' else qa_raw;
   q_b <= qb_r;
 end architecture rtl;

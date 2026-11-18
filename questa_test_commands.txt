@@ -42,3 +42,8 @@ vsim -c "-gMEM_FILE=programs/ta_test2.mem" "-gGOLDEN_FILE=programs/ta_test2.gold
 # do scripts/questa_compile.do
 # do scripts/questa_run.do tb_top
 # vsim -gMEM_FILE=programs/test2.mem -gGOLDEN_FILE=programs/test2.golden -gIN_VALUE=00000300 -gIRQ_CYCLE=-1 work.tb_system
+
+# if make all fails 
+$env:PATH = "C:\Program Files\Git\usr\bin;" + $env:PATH
+Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
+

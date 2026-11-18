@@ -27,11 +27,13 @@ package cpu_pkg is
   subtype maddr_t is std_logic_vector(MEMINDEX-1 downto 0);
   subtype aluop_t is std_logic_vector(ALUOP-1 downto 0);
   subtype opcode_t is std_logic_vector(5 downto 0);
+  subtype imm16_t  is std_logic_vector(15 downto 0);
 
   type reg_array_t is array (0 to NREGS-1) of word_t;
   type mem_t       is array (0 to MEMDEPTH-1) of word_t;
 
-  constant WORD_ZERO : word_t := (others => '0');
+  constant WORD_ZERO  : word_t  := (others => '0');
+  constant IMM16_ZERO : imm16_t := (others => '0');
   constant MEM_ZERO  : mem_t  := (others => (others => '0'));
   constant SP_RESET  : word_t := x"00000FFF";   -- 4095
 
@@ -165,93 +167,95 @@ package cpu_pkg is
   -- Inter-stage pipeline register bundles
   -- -------------------------------------------------------------------------
   type if_d_t is record
-    valid  : std_logic;
-    is_vec : std_logic;
-    pc     : word_t;
-    pc1    : word_t;
+    is_valid              : std_logic;
+    is_interrupt_vector   : std_logic;
+    program_counter       : word_t;
+    next_program_counter  : word_t;
   end record;
 
   constant IF_D_NOP : if_d_t := (
-    valid  => '0',
-    is_vec => '0',
-    pc     => WORD_ZERO,
-    pc1    => WORD_ZERO);
+    is_valid              => '0',
+    is_interrupt_vector   => '0',
+    program_counter       => WORD_ZERO,
+    next_program_counter  => WORD_ZERO);
 
   type d_x1_t is record
-    ctrl : ctrl_t;
-    a    : word_t;
-    b    : word_t;
-    ra1  : raddr_t;
-    ra2  : raddr_t;
-    wa1  : raddr_t;
-    wa2  : raddr_t;
-    imm  : word_t;
-    link : word_t;
+    control               : ctrl_t;
+    operand_a             : word_t;
+    operand_b             : word_t;
+    read_addr_1           : raddr_t;
+    read_addr_2           : raddr_t;
+    write_addr_1          : raddr_t;
+    write_addr_2          : raddr_t;
+    immediate             : imm16_t;
+    immediate_unsigned    : std_logic;
+    link_address          : word_t;
   end record;
 
   constant D_X1_NOP : d_x1_t := (
-    ctrl => CTRL_NOP,
-    a    => WORD_ZERO,
-    b    => WORD_ZERO,
-    ra1  => "000",
-    ra2  => "000",
-    wa1  => "000",
-    wa2  => "000",
-    imm  => WORD_ZERO,
-    link => WORD_ZERO);
+    control               => CTRL_NOP,
+    operand_a             => WORD_ZERO,
+    operand_b             => WORD_ZERO,
+    read_addr_1           => "000",
+    read_addr_2           => "000",
+    write_addr_1          => "000",
+    write_addr_2          => "000",
+    immediate             => IMM16_ZERO,
+    immediate_unsigned    => '0',
+    link_address          => WORD_ZERO);
 
   type x1_x2_t is record
-    ctrl : ctrl_t;
-    res1 : word_t;
-    res2 : word_t;
-    a    : word_t;
-    b    : word_t;
-    imm  : word_t;
-    wa1  : raddr_t;
-    wa2  : raddr_t;
-    link : word_t;
+    control               : ctrl_t;
+    result_1              : word_t;
+    result_2              : word_t;
+    operand_a             : word_t;
+    operand_b             : word_t;
+    immediate             : imm16_t;
+    write_addr_1          : raddr_t;
+    write_addr_2          : raddr_t;
+    link_address          : word_t;
   end record;
 
   constant X1_X2_NOP : x1_x2_t := (
-    ctrl => CTRL_NOP,
-    res1 => WORD_ZERO,
-    res2 => WORD_ZERO,
-    a    => WORD_ZERO,
-    b    => WORD_ZERO,
-    imm  => WORD_ZERO,
-    wa1  => "000",
-    wa2  => "000",
-    link => WORD_ZERO);
+    control               => CTRL_NOP,
+    result_1              => WORD_ZERO,
+    result_2              => WORD_ZERO,
+    operand_a             => WORD_ZERO,
+    operand_b             => WORD_ZERO,
+    immediate             => IMM16_ZERO,
+    write_addr_1          => "000",
+    write_addr_2          => "000",
+    link_address          => WORD_ZERO);
 
   type x2_m_t is record
-    ctrl : ctrl_t;
-    res1 : word_t;
-    res2 : word_t;
-    wa1  : raddr_t;
-    wa2  : raddr_t;
+    control               : ctrl_t;
+    result_1              : word_t;
+    result_2              : word_t;
+    write_addr_1          : raddr_t;
+    write_addr_2          : raddr_t;
   end record;
 
   constant X2_M_NOP : x2_m_t := (
-    ctrl => CTRL_NOP,
-    res1 => WORD_ZERO,
-    res2 => WORD_ZERO,
-    wa1  => "000",
-    wa2  => "000");
+    control               => CTRL_NOP,
+    result_1              => WORD_ZERO,
+    result_2              => WORD_ZERO,
+    write_addr_1          => "000",
+    write_addr_2          => "000");
 
   type m_w_t is record
-    ctrl : ctrl_t;
-    res1 : word_t;
-    res2 : word_t;
-    wa1  : raddr_t;
-    wa2  : raddr_t;
+    control               : ctrl_t;
+    result_1              : word_t;
+    result_2              : word_t;
+    write_addr_1          : raddr_t;
+    write_addr_2          : raddr_t;
   end record;
 
   constant M_W_NOP : m_w_t := (
-    ctrl => CTRL_NOP,
-    res1 => WORD_ZERO,
-    res2 => WORD_ZERO,
-    wa1  => "000",
-    wa2  => "000");
+    control               => CTRL_NOP,
+    result_1              => WORD_ZERO,
+    result_2              => WORD_ZERO,
+    write_addr_1          => "000",
+    write_addr_2          => "000");
 
   -- -------------------------------------------------------------------------
   -- Helpers

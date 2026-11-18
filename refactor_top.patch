@@ -1,0 +1,1805 @@
+diff --git a/rtl/branch_check.vhd b/rtl/branch_check.vhd
+index 509bdd1..85db89d 100644
+--- a/rtl/branch_check.vhd
++++ b/rtl/branch_check.vhd
+@@ -1,9 +1,9 @@
+ -------------------------------------------------------------------------------
+ -- branch_check.vhd -- X2 resolution of JZ / JN / JC.
+ -- Every Jcc is statically predicted TAKEN and redirected in D. Here the
+--- condition is evaluated against the CCR; if the branch is NOT taken the
+--- prediction was wrong: mispredict = '1' flushes F/D/X1 and reloads PC from
+--- the branch's saved PC+1. Flags are never modified.
++-- condition is evaluated against the CCR:
++--   * if NOT taken: mispredict = '1' flushes F/D/X1 and reloads saved PC+1.
++--   * if TAKEN    : clr_mask clears the tested flag (spec semantics).
+ --   cond "01" -> Z, "10" -> N, "11" -> C, "00" -> never (not a Jcc).
+ -------------------------------------------------------------------------------
+ library ieee;
+@@ -16,7 +16,8 @@ entity branch_check is
+     cond       : in  std_logic_vector(1 downto 0);
+     ccr        : in  std_logic_vector(3 downto 0);
+     taken      : out std_logic;
+-    mispredict : out std_logic
++    mispredict : out std_logic;
++    clr_mask   : out std_logic_vector(2 downto 0)
+   );
+ end entity branch_check;
+ 
+@@ -30,4 +31,9 @@ begin
+ 
+   taken      <= is_jcc and t;
+   mispredict <= is_jcc and not t;
++
++  clr_mask <= "001" when (is_jcc = '1' and t = '1' and cond = COND_Z) else
++              "010" when (is_jcc = '1' and t = '1' and cond = COND_N) else
++              "100" when (is_jcc = '1' and t = '1' and cond = COND_C) else
++              "000";
+ end architecture rtl;
+diff --git a/rtl/cpu_pkg.vhd b/rtl/cpu_pkg.vhd
+index 264c6b0..260806d 100644
+--- a/rtl/cpu_pkg.vhd
++++ b/rtl/cpu_pkg.vhd
+@@ -161,6 +161,98 @@ package cpu_pkg is
+     is_halt                       => '0',
+     jump_condition                => "00");
+ 
++  -- -------------------------------------------------------------------------
++  -- Inter-stage pipeline register bundles
++  -- -------------------------------------------------------------------------
++  type if_d_t is record
++    valid  : std_logic;
++    is_vec : std_logic;
++    pc     : word_t;
++    pc1    : word_t;
++  end record;
++
++  constant IF_D_NOP : if_d_t := (
++    valid  => '0',
++    is_vec => '0',
++    pc     => WORD_ZERO,
++    pc1    => WORD_ZERO);
++
++  type d_x1_t is record
++    ctrl : ctrl_t;
++    a    : word_t;
++    b    : word_t;
++    ra1  : raddr_t;
++    ra2  : raddr_t;
++    wa1  : raddr_t;
++    wa2  : raddr_t;
++    imm  : word_t;
++    link : word_t;
++  end record;
++
++  constant D_X1_NOP : d_x1_t := (
++    ctrl => CTRL_NOP,
++    a    => WORD_ZERO,
++    b    => WORD_ZERO,
++    ra1  => "000",
++    ra2  => "000",
++    wa1  => "000",
++    wa2  => "000",
++    imm  => WORD_ZERO,
++    link => WORD_ZERO);
++
++  type x1_x2_t is record
++    ctrl : ctrl_t;
++    res1 : word_t;
++    res2 : word_t;
++    a    : word_t;
++    b    : word_t;
++    imm  : word_t;
++    wa1  : raddr_t;
++    wa2  : raddr_t;
++    link : word_t;
++  end record;
++
++  constant X1_X2_NOP : x1_x2_t := (
++    ctrl => CTRL_NOP,
++    res1 => WORD_ZERO,
++    res2 => WORD_ZERO,
++    a    => WORD_ZERO,
++    b    => WORD_ZERO,
++    imm  => WORD_ZERO,
++    wa1  => "000",
++    wa2  => "000",
++    link => WORD_ZERO);
++
++  type x2_m_t is record
++    ctrl : ctrl_t;
++    res1 : word_t;
++    res2 : word_t;
++    wa1  : raddr_t;
++    wa2  : raddr_t;
++  end record;
++
++  constant X2_M_NOP : x2_m_t := (
++    ctrl => CTRL_NOP,
++    res1 => WORD_ZERO,
++    res2 => WORD_ZERO,
++    wa1  => "000",
++    wa2  => "000");
++
++  type m_w_t is record
++    ctrl : ctrl_t;
++    res1 : word_t;
++    res2 : word_t;
++    wa1  : raddr_t;
++    wa2  : raddr_t;
++  end record;
++
++  constant M_W_NOP : m_w_t := (
++    ctrl => CTRL_NOP,
++    res1 => WORD_ZERO,
++    res2 => WORD_ZERO,
++    wa1  => "000",
++    wa2  => "000");
++
+   -- -------------------------------------------------------------------------
+   -- Helpers
+   -- -------------------------------------------------------------------------
+diff --git a/rtl/d_x1.vhd b/rtl/d_x1.vhd
+index b6b843c..cc88101 100644
+--- a/rtl/d_x1.vhd
++++ b/rtl/d_x1.vhd
+@@ -10,80 +10,31 @@ use work.cpu_pkg.all;
+ 
+ entity d_x1 is
+   port (
+-    clk      : in  std_logic;
+-    reset    : in  std_logic;
+-    en       : in  std_logic;
+-    flush    : in  std_logic;
+-    ctrl_in  : in  ctrl_t;
+-    a_in     : in  word_t;      -- RF read port 1
+-    b_in     : in  word_t;      -- RF read port 2
+-    ra1_in   : in  raddr_t;
+-    ra2_in   : in  raddr_t;
+-    wa1_in   : in  raddr_t;     -- Rdst
+-    wa2_in   : in  raddr_t;     -- Rsrc1 (SWAP second destination)
+-    imm_in   : in  word_t;      -- sign-extended immediate
+-    link_in  : in  word_t;      -- PC+1 (PC for the IRQ micro-op)
+-    ctrl_out : out ctrl_t;
+-    a_out    : out word_t;
+-    b_out    : out word_t;
+-    ra1_out  : out raddr_t;
+-    ra2_out  : out raddr_t;
+-    wa1_out  : out raddr_t;
+-    wa2_out  : out raddr_t;
+-    imm_out  : out word_t;
+-    link_out : out word_t
++    clk   : in  std_logic;
++    reset : in  std_logic;
++    en    : in  std_logic;
++    flush : in  std_logic;
++    d_in  : in  d_x1_t;
++    d_out : out d_x1_t
+   );
+ end entity d_x1;
+ 
+ architecture rtl of d_x1 is
+-  signal ctrl_r : ctrl_t  := CTRL_NOP;
+-  signal a_r    : word_t  := (others => '0');
+-  signal b_r    : word_t  := (others => '0');
+-  signal ra1_r  : raddr_t := (others => '0');
+-  signal ra2_r  : raddr_t := (others => '0');
+-  signal wa1_r  : raddr_t := (others => '0');
+-  signal wa2_r  : raddr_t := (others => '0');
+-  signal imm_r  : word_t  := (others => '0');
+-  signal link_r : word_t  := (others => '0');
++  signal reg : d_x1_t := D_X1_NOP;
+ begin
+   process (clk)
+   begin
+     if rising_edge(clk) then
+       if reset = '1' then
+-        ctrl_r <= CTRL_NOP;
+-        a_r    <= (others => '0');
+-        b_r    <= (others => '0');
+-        ra1_r  <= (others => '0');
+-        ra2_r  <= (others => '0');
+-        wa1_r  <= (others => '0');
+-        wa2_r  <= (others => '0');
+-        imm_r  <= (others => '0');
+-        link_r <= (others => '0');
++        reg <= D_X1_NOP;
+       elsif flush = '1' or en = '1' then
++        reg <= d_in;
+         if flush = '1' then
+-          ctrl_r <= CTRL_NOP;
+-        else
+-          ctrl_r <= ctrl_in;
++          reg.ctrl <= CTRL_NOP;
+         end if;
+-        a_r    <= a_in;
+-        b_r    <= b_in;
+-        ra1_r  <= ra1_in;
+-        ra2_r  <= ra2_in;
+-        wa1_r  <= wa1_in;
+-        wa2_r  <= wa2_in;
+-        imm_r  <= imm_in;
+-        link_r <= link_in;
+       end if;
+     end if;
+   end process;
+ 
+-  ctrl_out <= ctrl_r;
+-  a_out    <= a_r;
+-  b_out    <= b_r;
+-  ra1_out  <= ra1_r;
+-  ra2_out  <= ra2_r;
+-  wa1_out  <= wa1_r;
+-  wa2_out  <= wa2_r;
+-  imm_out  <= imm_r;
+-  link_out <= link_r;
++  d_out <= reg;
+ end architecture rtl;
+diff --git a/rtl/if_d.vhd b/rtl/if_d.vhd
+index c5c3e6a..290a1e8 100644
+--- a/rtl/if_d.vhd
++++ b/rtl/if_d.vhd
+@@ -14,51 +14,33 @@ use work.cpu_pkg.all;
+ 
+ entity if_d is
+   port (
+-    clk        : in  std_logic;
+-    reset      : in  std_logic;
+-    en         : in  std_logic;   -- '0' = hold (load-use stall)
+-    flush      : in  std_logic;   -- '1' = capture a bubble
+-    valid_in   : in  std_logic;
+-    is_vec_in  : in  std_logic;
+-    pc_in      : in  word_t;
+-    pc1_in     : in  word_t;
+-    valid_out  : out std_logic;
+-    is_vec_out : out std_logic;
+-    pc_out     : out word_t;
+-    pc1_out    : out word_t
++    clk   : in  std_logic;
++    reset : in  std_logic;
++    en    : in  std_logic;              -- '0' = hold (load-use stall)
++    flush : in  std_logic;              -- '1' = capture a bubble
++    d_in  : in  if_d_t;
++    d_out : out if_d_t
+   );
+ end entity if_d;
+ 
+ architecture rtl of if_d is
+-  signal valid_r  : std_logic := '0';
+-  signal is_vec_r : std_logic := '0';
+-  signal pc_r     : word_t    := (others => '0');
+-  signal pc1_r    : word_t    := (others => '0');
++  signal reg : if_d_t := IF_D_NOP;
+ begin
+   process (clk)
+   begin
+     if rising_edge(clk) then
+       if reset = '1' then
+-        valid_r  <= '0';
+-        is_vec_r <= '0';
+-        pc_r     <= (others => '0');
+-        pc1_r    <= (others => '0');
++        reg <= IF_D_NOP;
+       elsif flush = '1' then
+-        valid_r  <= '0';
+-        is_vec_r <= '0';
+-        pc_r     <= pc_in;
+-        pc1_r    <= pc1_in;
++        reg.valid  <= '0';
++        reg.is_vec <= '0';
++        reg.pc     <= d_in.pc;
++        reg.pc1    <= d_in.pc1;
+       elsif en = '1' then
+-        valid_r  <= valid_in;
+-        is_vec_r <= is_vec_in;
+-        pc_r     <= pc_in;
+-        pc1_r    <= pc1_in;
++        reg <= d_in;
+       end if;
+     end if;
+   end process;
+ 
+-  valid_out  <= valid_r;
+-  is_vec_out <= is_vec_r;
+-  pc_out     <= pc_r;
+-  pc1_out    <= pc1_r;
++  d_out <= reg;
+ end architecture rtl;
+diff --git a/rtl/m_w.vhd b/rtl/m_w.vhd
+index ba514e1..8a28649 100644
+--- a/rtl/m_w.vhd
++++ b/rtl/m_w.vhd
+@@ -1,6 +1,6 @@
+ -------------------------------------------------------------------------------
+ -- m_w.vhd -- M/W pipeline register.
+--- Note: res1_in is already the final result (RAM data for loads).
++-- Note: res1 in d_in is already the final result (RAM data for loads).
+ -- flush loads CTRL_NOP and has priority over en.
+ -------------------------------------------------------------------------------
+ library ieee;
+@@ -9,56 +9,31 @@ use work.cpu_pkg.all;
+ 
+ entity m_w is
+   port (
+-    clk      : in  std_logic;
+-    reset    : in  std_logic;
+-    en       : in  std_logic;
+-    flush    : in  std_logic;
+-    ctrl_in  : in  ctrl_t;
+-    res1_in  : in  word_t;
+-    res2_in  : in  word_t;
+-    wa1_in   : in  raddr_t;
+-    wa2_in   : in  raddr_t;
+-    ctrl_out : out ctrl_t;
+-    res1_out : out word_t;
+-    res2_out : out word_t;
+-    wa1_out  : out raddr_t;
+-    wa2_out  : out raddr_t
++    clk   : in  std_logic;
++    reset : in  std_logic;
++    en    : in  std_logic;
++    flush : in  std_logic;
++    d_in  : in  m_w_t;
++    d_out : out m_w_t
+   );
+ end entity m_w;
+ 
+ architecture rtl of m_w is
+-  signal ctrl_r : ctrl_t  := CTRL_NOP;
+-  signal res1_r : word_t  := (others => '0');
+-  signal res2_r : word_t  := (others => '0');
+-  signal wa1_r  : raddr_t := (others => '0');
+-  signal wa2_r  : raddr_t := (others => '0');
++  signal reg : m_w_t := M_W_NOP;
+ begin
+   process (clk)
+   begin
+     if rising_edge(clk) then
+       if reset = '1' then
+-        ctrl_r <= CTRL_NOP;
+-        res1_r <= (others => '0');
+-        res2_r <= (others => '0');
+-        wa1_r  <= (others => '0');
+-        wa2_r  <= (others => '0');
++        reg <= M_W_NOP;
+       elsif flush = '1' or en = '1' then
++        reg <= d_in;
+         if flush = '1' then
+-          ctrl_r <= CTRL_NOP;
+-        else
+-          ctrl_r <= ctrl_in;
++          reg.ctrl <= CTRL_NOP;
+         end if;
+-        res1_r <= res1_in;
+-        res2_r <= res2_in;
+-        wa1_r  <= wa1_in;
+-        wa2_r  <= wa2_in;
+       end if;
+     end if;
+   end process;
+ 
+-  ctrl_out <= ctrl_r;
+-  res1_out <= res1_r;
+-  res2_out <= res2_r;
+-  wa1_out  <= wa1_r;
+-  wa2_out  <= wa2_r;
++  d_out <= reg;
+ end architecture rtl;
+diff --git a/rtl/top.vhd b/rtl/top.vhd
+index 627c4b1..345a7a3 100644
+--- a/rtl/top.vhd
++++ b/rtl/top.vhd
+@@ -36,97 +36,119 @@ end entity top;
+ 
+ architecture rtl of top is
+ 
+-  -- ---------------------------------------------------------------- fetch
+-  signal pc_q, pc_p1, pc_next : word_t;
+-  signal pc_src               : std_logic_vector(2 downto 0);
+-  signal pc_en                : std_logic;
+-  signal ram_addr_a           : maddr_t;
+-  signal ram_en_a             : std_logic;
+-  signal q_a                  : word_t;
+-  signal instr                : word_t;
+-  signal vec_fetch_r          : std_logic := '0';
+-
+-  -- ---------------------------------------------------------------- IF/D
+-  signal ifd_valid, ifd_is_vec : std_logic;
+-  signal ifd_pc, ifd_pc1       : word_t;
+-
+-  -- ---------------------------------------------------------------- D
+-  signal opcode            : opcode_t;
+-  signal f_rdst, f_rs1, f_rs2 : raddr_t;
+-  signal d_real            : std_logic;
+-  signal d_vec_word        : std_logic;
+-  signal d_inject          : std_logic;
+-  signal ctrl_raw, ctrl_d  : ctrl_t;
+-  signal d_ra1, d_ra2      : raddr_t;
+-  signal rf_rd1, rf_rd2    : word_t;
+-  signal d_imm             : word_t;
+-  signal d_imm_z           : word_t;
+-  signal d_link            : word_t;
+-  signal d_vec_int         : word_t;
+-  signal d_target          : word_t;
+-  signal d_redirect_req    : std_logic;
+-  signal regs              : reg_array_t;
+-
+-  -- ---------------------------------------------------------------- X1
+-  signal x1_ctrl                 : ctrl_t;
+-  signal x1_a, x1_b, x1_imm      : word_t;
+-  signal x1_link                 : word_t;
+-  signal x1_ra1, x1_ra2          : raddr_t;
+-  signal x1_wa1, x1_wa2          : raddr_t;
+-  signal fa, fb, alu_b, alu_y    : word_t;
+-  signal fsel_a, fsel_b          : std_logic_vector(1 downto 0);
+-  signal alu_z, alu_n, alu_c     : std_logic;
+-  signal alu_cv                  : std_logic;
+-  signal x1_res1                 : word_t;
+-  signal ccr_zn_we, ccr_c_we     : std_logic;
+-
+-  -- ---------------------------------------------------------------- X2
+-  signal x2_ctrl                   : ctrl_t;
+-  signal x2_res1, x2_res2          : word_t;
+-  signal x2_a, x2_b, x2_imm        : word_t;
+-  signal x2_link                   : word_t;
+-  signal x2_wa1, x2_wa2            : raddr_t;
+-  signal x2_base, x2_ea            : word_t;
+-  signal sp_val, sp_addr           : word_t;
+-  signal x2_maddr                  : word_t;
+-  signal x2_sdata                  : word_t;
+-  signal taken, mispredict         : std_logic;
+-  signal ccr_save                  : std_logic;
+-  signal ccr_clr : std_logic_vector(2 downto 0) := "000";
+-
+-  -- ---------------------------------------------------------------- M
+-  signal m_ctrl           : ctrl_t;
+-  signal m_res1, m_res2   : word_t;
+-  signal m_wa1, m_wa2     : raddr_t;
+-  signal q_b              : word_t;
+-  signal m_final          : word_t;
+-
+-  -- ---------------------------------------------------------------- W
+-  signal w_ctrl           : ctrl_t;
+-  signal w_res1, w_res2   : word_t;
+-  signal w_wa1, w_wa2     : raddr_t;
+-  signal out_r            : word_t := (others => '0');
+-  signal ccr_restore      : std_logic;
+-
+-  -- ---------------------------------------------------------------- misc
+-  signal ccr_val, shadow_val : std_logic_vector(3 downto 0);
+-  signal stall, d_redirect   : std_logic;
+-  signal fetch_hold, w_load  : std_logic;
+-  signal halt_stop, halted_i : std_logic;
+-  signal ifd_flush           : std_logic;
+-  signal dx1_flush           : std_logic;
+-  signal x1x2_flush          : std_logic;
+-  signal boot_busy           : std_logic;
+-  signal boot_load           : std_logic;
+-  signal boot_state          : std_logic_vector(1 downto 0);
+-  signal intr_calm           : std_logic;
+-  signal intr_pending        : std_logic;
+-  signal in_isr              : std_logic;
+-  signal vec_fetch_next      : std_logic;
++  -- ------------------------------------------------------------ Reset / Boot
++  signal boot_busy      : std_logic := '1';
++  signal boot_load      : std_logic := '0';
++  signal boot_state     : std_logic_vector(1 downto 0) := "00";
++
++  -- ------------------------------------------------------------ Fetch (F)
++  signal pc_q           : word_t := WORD_ZERO;
++  signal pc_p1          : word_t := WORD_ZERO;
++  signal pc_next        : word_t := WORD_ZERO;
++  signal pc_src         : std_logic_vector(2 downto 0) := "000";
++  signal pc_en          : std_logic := '0';
++  signal ram_addr_a     : maddr_t := (others => '0');
++  signal ram_en_a       : std_logic := '1';
++  signal q_a            : word_t := WORD_ZERO;
++  signal instr          : word_t := WORD_ZERO;
++  signal vec_fetch_next : std_logic := '0';
++  signal vec_fetch_r    : std_logic := '0';
++
++  -- ------------------------------------------------------------ IF/D Bus
++  signal ifd_in         : if_d_t := IF_D_NOP;
++  signal ifd            : if_d_t := IF_D_NOP;
++
++  -- ------------------------------------------------------------ Decode (D)
++  signal opcode         : opcode_t := (others => '0');
++  signal f_rdst         : raddr_t := "000";
++  signal f_rs1          : raddr_t := "000";
++  signal f_rs2          : raddr_t := "000";
++  signal d_real         : std_logic := '0';
++  signal d_vec_word     : std_logic := '0';
++  signal d_inject       : std_logic := '0';
++  signal ctrl_raw       : ctrl_t := CTRL_NOP;
++  signal ctrl_d         : ctrl_t := CTRL_NOP;
++  signal d_ra1          : raddr_t := "000";
++  signal d_ra2          : raddr_t := "000";
++  signal rf_rd1         : word_t := WORD_ZERO;
++  signal rf_rd2         : word_t := WORD_ZERO;
++  signal d_imm          : word_t := WORD_ZERO;
++  signal d_imm_z        : word_t := WORD_ZERO;
++  signal d_link         : word_t := WORD_ZERO;
++  signal d_vec_int      : word_t := WORD_ZERO;
++  signal d_target       : word_t := WORD_ZERO;
++  signal d_redirect_req : std_logic := '0';
++  signal regs           : reg_array_t := (others => WORD_ZERO);
++
++  -- ------------------------------------------------------------ D/X1 Bus
++  signal dx1_in         : d_x1_t := D_X1_NOP;
++  signal dx1            : d_x1_t := D_X1_NOP;
++
++  -- ------------------------------------------------------------ Execute-1 (X1)
++  signal fa, fb         : word_t := WORD_ZERO;
++  signal fsel_a, fsel_b : std_logic_vector(1 downto 0) := "00";
++  signal alu_b, alu_y   : word_t := WORD_ZERO;
++  signal alu_z          : std_logic := '0';
++  signal alu_n          : std_logic := '0';
++  signal alu_c          : std_logic := '0';
++  signal alu_cv         : std_logic := '0';
++  signal x1_res1        : word_t := WORD_ZERO;
++  signal ccr_zn_we      : std_logic := '0';
++  signal ccr_c_we       : std_logic := '0';
++  signal ccr_save       : std_logic := '0';
++  signal ccr_restore    : std_logic := '0';
++  signal ccr_clr        : std_logic_vector(2 downto 0) := "000";
++  signal ccr_val        : std_logic_vector(3 downto 0) := "0000";
++  signal shadow_val     : std_logic_vector(3 downto 0) := "0000";
++
++  -- ------------------------------------------------------------ X1/X2 Bus
++  signal x1x2_in        : x1_x2_t := X1_X2_NOP;
++  signal x1x2           : x1_x2_t := X1_X2_NOP;
++
++  -- ------------------------------------------------------------ Execute-2 (X2)
++  signal x2_base        : word_t := WORD_ZERO;
++  signal x2_ea          : word_t := WORD_ZERO;
++  signal sp_val         : word_t := SP_RESET;
++  signal sp_addr        : word_t := SP_RESET;
++  signal x2_maddr       : word_t := WORD_ZERO;
++  signal x2_sdata       : word_t := WORD_ZERO;
++  signal taken          : std_logic := '0';
++  signal mispredict     : std_logic := '0';
++
++  -- ------------------------------------------------------------ X2/M Bus
++  signal x2m_in         : x2_m_t := X2_M_NOP;
++  signal x2m            : x2_m_t := X2_M_NOP;
++
++  -- ------------------------------------------------------------ Memory (M)
++  signal q_b            : word_t := WORD_ZERO;
++  signal m_final        : word_t := WORD_ZERO;
++
++  -- ------------------------------------------------------------ M/W Bus
++  signal mw_in          : m_w_t := M_W_NOP;
++  signal mw             : m_w_t := M_W_NOP;
++
++  -- ------------------------------------------------------------ Write-Back (W)
++  signal out_r          : word_t := WORD_ZERO;
++
++  -- ------------------------------------------------------------ Hazard & Interrupts
++  signal stall          : std_logic := '0';
++  signal d_redirect     : std_logic := '0';
++  signal fetch_hold     : std_logic := '0';
++  signal w_load         : std_logic := '0';
++  signal halt_stop      : std_logic := '0';
++  signal halted_i       : std_logic := '0';
++  signal ifd_flush      : std_logic := '0';
++  signal dx1_flush      : std_logic := '0';
++  signal x1x2_flush     : std_logic := '0';
++  signal intr_calm      : std_logic := '0';
++  signal intr_pending   : std_logic := '0';
++  signal in_isr         : std_logic := '0';
+ 
+ begin
+ 
+-  -- =========================================================== reset / boot
++  -- =========================================================================
++  -- 0. RESET / BOOT SEQUENCER
++  -- =========================================================================
+   u_reset_fsm : entity work.reset_fsm
+     port map (
+       clk       => clk,
+@@ -135,13 +157,15 @@ begin
+       boot_load => boot_load,
+       state_out => boot_state);
+ 
+-  -- =========================================================== F stage
++  -- =========================================================================
++  -- 1. FETCH STAGE (F) & IF/D PIPELINE REGISTER
++  -- =========================================================================
+   u_pc_mux : entity work.pc_mux
+     port map (
+       pc_plus1    => pc_p1,
+       boot_target => q_a,
+-      w_target    => w_res1,
+-      x2_target   => x2_link,
++      w_target    => mw.res1,
++      x2_target   => x1x2.link,
+       d_target    => d_target,
+       sel_boot    => boot_load,
+       sel_w       => w_load,
+@@ -168,10 +192,10 @@ begin
+       ram_q    => q_a,
+       instr    => instr);
+ 
+-  -- the word fetched in the next cycle is an INT / IRQ vector
++  -- Track whether the word being fetched next cycle is an INT/IRQ vector
+   vec_fetch_next <= d_redirect and (ctrl_d.is_software_interrupt or ctrl_d.is_hardware_interrupt);
+ 
+-  process (clk)
++  PROC_VEC_FETCH : process (clk)
+   begin
+     if rising_edge(clk) then
+       if reset = '1' then
+@@ -182,29 +206,31 @@ begin
+     end if;
+   end process;
+ 
++  ifd_in <= (
++    valid  => '1',
++    is_vec => vec_fetch_r,
++    pc     => pc_q,
++    pc1    => pc_p1);
++
+   u_if_d : entity work.if_d
+     port map (
+-      clk        => clk,
+-      reset      => reset,
+-      en         => ram_en_a,         -- = not stall
+-      flush      => ifd_flush,
+-      valid_in   => '1',
+-      is_vec_in  => vec_fetch_r,
+-      pc_in      => pc_q,
+-      pc1_in     => pc_p1,
+-      valid_out  => ifd_valid,
+-      is_vec_out => ifd_is_vec,
+-      pc_out     => ifd_pc,
+-      pc1_out    => ifd_pc1);
+-
+-  -- =========================================================== D stage
++      clk   => clk,
++      reset => reset,
++      en    => ram_en_a,              -- = not stall
++      flush => ifd_flush,
++      d_in  => ifd_in,
++      d_out => ifd);
++
++  -- =========================================================================
++  -- 2. DECODE STAGE (D) & D/X1 PIPELINE REGISTER
++  -- =========================================================================
+   opcode <= instr(31 downto 26);
+   f_rdst <= instr(25 downto 23);
+   f_rs1  <= instr(22 downto 20);
+   f_rs2  <= instr(19 downto 17);
+ 
+-  d_real     <= ifd_valid and not ifd_is_vec;
+-  d_vec_word <= ifd_valid and ifd_is_vec;
++  d_real     <= ifd.valid and not ifd.is_vec;
++  d_vec_word <= ifd.valid and ifd.is_vec;
+ 
+   u_control : entity work.control
+     port map (
+@@ -219,16 +245,17 @@ begin
+ 
+   d_imm     <= zext16(instr(15 downto 0)) when opcode = OP_LDM else sext16(instr(15 downto 0));
+   d_imm_z   <= zext16(instr(15 downto 0));
+-  d_vec_int <= x"0000000" & "001" & instr(16);           -- 2 + index
+-  d_link    <= ifd_pc when ctrl_d.is_hardware_interrupt = '1' else ifd_pc1;
++  d_vec_int <= x"0000000" & "001" & instr(16);             -- 2 + index
++  d_link    <= ifd.pc when ctrl_d.is_hardware_interrupt = '1' else ifd.pc1;
+ 
+-  d_target <= instr       when d_vec_word     = '1' else
+-              x"00000001" when ctrl_d.is_hardware_interrupt   = '1' else
+-              d_vec_int   when ctrl_d.is_software_interrupt  = '1' else
++  d_target <= instr       when d_vec_word                   = '1' else
++              x"00000001" when ctrl_d.is_hardware_interrupt = '1' else
++              d_vec_int   when ctrl_d.is_software_interrupt = '1' else
+               d_imm_z;
+ 
+   d_redirect_req <= d_vec_word or ctrl_d.is_jump or ctrl_d.is_call or
+-                    ctrl_d.is_conditional_jump or ctrl_d.is_software_interrupt or ctrl_d.is_hardware_interrupt;
++                    ctrl_d.is_conditional_jump or ctrl_d.is_software_interrupt or
++                    ctrl_d.is_hardware_interrupt;
+ 
+   u_regfile : entity work.regfile
+     port map (
+@@ -238,13 +265,13 @@ begin
+       ra2      => d_ra2,
+       rd1      => rf_rd1,
+       rd2      => rf_rd2,
+-      wa1      => w_wa1,
+-      wd1      => w_res1,
+-      we1      => w_ctrl.write_port_1_enable,
+-      wa2      => w_wa2,
+-      wd2      => w_res2,
+-      we2      => w_ctrl.write_port_2_enable,
+-      swap     => w_ctrl.swap_write_addresses,
++      wa1      => mw.wa1,
++      wd1      => mw.res1,
++      we1      => mw.ctrl.write_port_1_enable,
++      wa2      => mw.wa2,
++      wd2      => mw.res2,
++      we2      => mw.ctrl.write_port_2_enable,
++      swap     => mw.ctrl.swap_write_addresses,
+       regs_out => regs);
+ 
+   u_intr_fsm : entity work.intr_fsm
+@@ -254,10 +281,10 @@ begin
+       intr_in      => intr_in,
+       d_real       => d_real,
+       d_ctrl_raw   => ctrl_raw,
+-      x1_ctrl      => x1_ctrl,
+-      x2_ctrl      => x2_ctrl,
+-      m_ctrl       => m_ctrl,
+-      w_ctrl       => w_ctrl,
++      x1_ctrl      => dx1.ctrl,
++      x2_ctrl      => x1x2.ctrl,
++      m_ctrl       => x2m.ctrl,
++      w_ctrl       => mw.ctrl,
+       mispredict   => mispredict,
+       boot_busy    => boot_busy,
+       inject       => d_inject,
+@@ -273,11 +300,11 @@ begin
+       d_ra1          => d_ra1,
+       d_ra2          => d_ra2,
+       d_redirect_req => d_redirect_req,
+-      x1_ctrl        => x1_ctrl,
+-      x1_wa1         => x1_wa1,
+-      x2_ctrl        => x2_ctrl,
+-      m_ctrl         => m_ctrl,
+-      w_ctrl         => w_ctrl,
++      x1_ctrl        => dx1.ctrl,
++      x1_wa1         => dx1.wa1,
++      x2_ctrl        => x1x2.ctrl,
++      m_ctrl         => x2m.ctrl,
++      w_ctrl         => mw.ctrl,
+       mispredict     => mispredict,
+       boot_busy      => boot_busy,
+       boot_load      => boot_load,
+@@ -292,93 +319,85 @@ begin
+       x1x2_flush     => x1x2_flush,
+       pc_en          => pc_en);
+ 
++  dx1_in <= (
++    ctrl => ctrl_d,
++    a    => rf_rd1,
++    b    => rf_rd2,
++    ra1  => d_ra1,
++    ra2  => d_ra2,
++    wa1  => f_rdst,
++    wa2  => f_rs1,
++    imm  => d_imm,
++    link => d_link);
++
+   u_d_x1 : entity work.d_x1
+     port map (
+-      clk      => clk,
+-      reset    => reset,
+-      en       => '1',
+-      flush    => dx1_flush,
+-      ctrl_in  => ctrl_d,
+-      a_in     => rf_rd1,
+-      b_in     => rf_rd2,
+-      ra1_in   => d_ra1,
+-      ra2_in   => d_ra2,
+-      wa1_in   => f_rdst,
+-      wa2_in   => f_rs1,
+-      imm_in   => d_imm,
+-      link_in  => d_link,
+-      ctrl_out => x1_ctrl,
+-      a_out    => x1_a,
+-      b_out    => x1_b,
+-      ra1_out  => x1_ra1,
+-      ra2_out  => x1_ra2,
+-      wa1_out  => x1_wa1,
+-      wa2_out  => x1_wa2,
+-      imm_out  => x1_imm,
+-      link_out => x1_link);
+-
+-  -- =========================================================== X1 stage
++      clk   => clk,
++      reset => reset,
++      en    => '1',
++      flush => dx1_flush,
++      d_in  => dx1_in,
++      d_out => dx1);
++
++  -- =========================================================================
++  -- 3. EXECUTE-1 STAGE (X1) & X1/X2 PIPELINE REGISTER
++  -- =========================================================================
+   u_forward : entity work.forward_unit
+     port map (
+-      ra1      => x1_ra1,
+-      ra2      => x1_ra2,
+-      use_a    => x1_ctrl.reads_operand_a,
+-      use_b    => x1_ctrl.reads_operand_b,
+-      rf_a     => x1_a,
+-      rf_b     => x1_b,
+-      x2_we1   => x2_ctrl.write_port_1_enable,
+-      x2_we2   => x2_ctrl.write_port_2_enable,
+-      x2_swap  => x2_ctrl.swap_write_addresses,
+-      x2_wa1   => x2_wa1,
+-      x2_wa2   => x2_wa2,
+-      x2_res1  => x2_res1,
+-      x2_res2  => x2_res2,
+-      m_we1    => m_ctrl.write_port_1_enable,
+-      m_we2    => m_ctrl.write_port_2_enable,
+-      m_swap   => m_ctrl.swap_write_addresses,
+-      m_wa1    => m_wa1,
+-      m_wa2    => m_wa2,
+-      m_mem_rd => m_ctrl.memory_read,
+-      m_res1   => m_res1,
+-      m_res2   => m_res2,
++      ra1      => dx1.ra1,
++      ra2      => dx1.ra2,
++      use_a    => dx1.ctrl.reads_operand_a,
++      use_b    => dx1.ctrl.reads_operand_b,
++      rf_a     => dx1.a,
++      rf_b     => dx1.b,
++      x2_we1   => x1x2.ctrl.write_port_1_enable,
++      x2_we2   => x1x2.ctrl.write_port_2_enable,
++      x2_swap  => x1x2.ctrl.swap_write_addresses,
++      x2_wa1   => x1x2.wa1,
++      x2_wa2   => x1x2.wa2,
++      x2_res1  => x1x2.res1,
++      x2_res2  => x1x2.res2,
++      m_we1    => x2m.ctrl.write_port_1_enable,
++      m_we2    => x2m.ctrl.write_port_2_enable,
++      m_swap   => x2m.ctrl.swap_write_addresses,
++      m_wa1    => x2m.wa1,
++      m_wa2    => x2m.wa2,
++      m_mem_rd => x2m.ctrl.memory_read,
++      m_res1   => x2m.res1,
++      m_res2   => x2m.res2,
+       m_q      => q_b,
+-      w_we1    => w_ctrl.write_port_1_enable,
+-      w_we2    => w_ctrl.write_port_2_enable,
+-      w_swap   => w_ctrl.swap_write_addresses,
+-      w_wa1    => w_wa1,
+-      w_wa2    => w_wa2,
+-      w_res1   => w_res1,
+-      w_res2   => w_res2,
++      w_we1    => mw.ctrl.write_port_1_enable,
++      w_we2    => mw.ctrl.write_port_2_enable,
++      w_swap   => mw.ctrl.swap_write_addresses,
++      w_wa1    => mw.wa1,
++      w_wa2    => mw.wa2,
++      w_res1   => mw.res1,
++      w_res2   => mw.res2,
+       fa       => fa,
+       fb       => fb,
+       sel_a    => fsel_a,
+       sel_b    => fsel_b);
+ 
+-  alu_b <= x1_imm when x1_ctrl.alu_b_uses_immediate = '1' else fb;
++  alu_b <= dx1.imm when dx1.ctrl.alu_b_uses_immediate = '1' else fb;
+ 
+   u_alu : entity work.alu
+     port map (
+       a     => fa,
+       b     => alu_b,
+-      shamt => x1_imm(4 downto 0),
+-      op    => x1_ctrl.alu_operation,
++      shamt => dx1.imm(4 downto 0),
++      op    => dx1.ctrl.alu_operation,
+       y     => alu_y,
+       z     => alu_z,
+       n     => alu_n,
+       c     => alu_c,
+       cv    => alu_cv);
+ 
+-  x1_res1 <= in_port when x1_ctrl.result_from_in_port = '1' else alu_y;
++  x1_res1 <= in_port when dx1.ctrl.result_from_in_port = '1' else alu_y;
+ 
+-  ccr_zn_we   <= x1_ctrl.update_zero_negative_flags and not mispredict;
+-  ccr_c_we    <= x1_ctrl.update_carry_flag and alu_cv and not mispredict;
+-  ccr_save    <= x2_ctrl.is_software_interrupt or x2_ctrl.is_hardware_interrupt;
+-  ccr_restore <= w_ctrl.is_return_from_interrupt;
+-
+-  ccr_clr <= "001" when (taken = '1' and x2_ctrl.jump_condition = COND_Z) else
+-             "010" when (taken = '1' and x2_ctrl.jump_condition = COND_N) else
+-             "100" when (taken = '1' and x2_ctrl.jump_condition = COND_C) else
+-             "000";
++  ccr_zn_we   <= dx1.ctrl.update_zero_negative_flags and not mispredict;
++  ccr_c_we    <= dx1.ctrl.update_carry_flag and alu_cv and not mispredict;
++  ccr_save    <= x1x2.ctrl.is_software_interrupt or x1x2.ctrl.is_hardware_interrupt;
++  ccr_restore <= mw.ctrl.is_return_from_interrupt;
+ 
+   u_ccr : entity work.ccr
+     port map (
+@@ -395,59 +414,57 @@ begin
+       ccr_out    => ccr_val,
+       shadow_out => shadow_val);
+ 
++  x1x2_in <= (
++    ctrl => dx1.ctrl,
++    res1 => x1_res1,
++    res2 => fb,
++    a    => fa,
++    b    => fb,
++    imm  => dx1.imm,
++    wa1  => dx1.wa1,
++    wa2  => dx1.wa2,
++    link => dx1.link);
++
+   u_x1_x2 : entity work.x1_x2
+     port map (
+-      clk      => clk,
+-      reset    => reset,
+-      en       => '1',
+-      flush    => x1x2_flush,
+-      ctrl_in  => x1_ctrl,
+-      res1_in  => x1_res1,
+-      res2_in  => fb,
+-      a_in     => fa,
+-      b_in     => fb,
+-      imm_in   => x1_imm,
+-      wa1_in   => x1_wa1,
+-      wa2_in   => x1_wa2,
+-      link_in  => x1_link,
+-      ctrl_out => x2_ctrl,
+-      res1_out => x2_res1,
+-      res2_out => x2_res2,
+-      a_out    => x2_a,
+-      b_out    => x2_b,
+-      imm_out  => x2_imm,
+-      wa1_out  => x2_wa1,
+-      wa2_out  => x2_wa2,
+-      link_out => x2_link);
+-
+-  -- =========================================================== X2 stage
+-  x2_base <= x2_b when x2_ctrl.base_address_is_operand_b = '1' else x2_a;
++      clk   => clk,
++      reset => reset,
++      en    => '1',
++      flush => x1x2_flush,
++      d_in  => x1x2_in,
++      d_out => x1x2);
++
++  -- =========================================================================
++  -- 4. EXECUTE-2 STAGE (X2) & X2/M PIPELINE REGISTER
++  -- =========================================================================
++  x2_base <= x1x2.b when x1x2.ctrl.base_address_is_operand_b = '1' else x1x2.a;
+ 
+   u_addr_adder : entity work.addr_adder
+     port map (
+       base   => x2_base,
+-      offset => x2_imm,
++      offset => x1x2.imm,
+       ea     => x2_ea);
+ 
+   u_sp : entity work.sp_unit
+     port map (
+       clk   => clk,
+       reset => reset,
+-      dec   => x2_ctrl.stack_pointer_decrement,
+-      inc   => x2_ctrl.stack_pointer_increment,
++      dec   => x1x2.ctrl.stack_pointer_decrement,
++      inc   => x1x2.ctrl.stack_pointer_increment,
+       sp    => sp_val,
+       addr  => sp_addr);
+ 
+-  x2_maddr <= sp_addr when x2_ctrl.memory_address_from_sp = '1' else x2_ea;
+-  x2_sdata <= x2_link when x2_ctrl.store_link_address = '1' else x2_a;
++  x2_maddr <= sp_addr   when x1x2.ctrl.memory_address_from_sp = '1' else x2_ea;
++  x2_sdata <= x1x2.link when x1x2.ctrl.store_link_address = '1'     else x1x2.a;
+ 
+   u_branch : entity work.branch_check
+     port map (
+-      is_jcc     => x2_ctrl.is_conditional_jump,
+-      cond       => x2_ctrl.jump_condition,
++      is_jcc     => x1x2.ctrl.is_conditional_jump,
++      cond       => x1x2.ctrl.jump_condition,
+       ccr        => ccr_val,
+       taken      => taken,
+-      mispredict => mispredict);
++      mispredict => mispredict,
++      clr_mask   => ccr_clr);
+ 
+   u_mem : entity work.data_mem
+     generic map (
+@@ -458,60 +475,61 @@ begin
+       en_a   => ram_en_a,
+       q_a    => q_a,
+       addr_b => x2_maddr(MEMINDEX-1 downto 0),
+-      we_b   => x2_ctrl.memory_write,
++      we_b   => x1x2.ctrl.memory_write,
+       din_b  => x2_sdata,
+       q_b    => q_b);
+ 
++  x2m_in <= (
++    ctrl => x1x2.ctrl,
++    res1 => x1x2.res1,
++    res2 => x1x2.res2,
++    wa1  => x1x2.wa1,
++    wa2  => x1x2.wa2);
++
+   u_x2_m : entity work.x2_m
+     port map (
+-      clk      => clk,
+-      reset    => reset,
+-      en       => '1',
+-      flush    => '0',
+-      ctrl_in  => x2_ctrl,
+-      res1_in  => x2_res1,
+-      res2_in  => x2_res2,
+-      wa1_in   => x2_wa1,
+-      wa2_in   => x2_wa2,
+-      ctrl_out => m_ctrl,
+-      res1_out => m_res1,
+-      res2_out => m_res2,
+-      wa1_out  => m_wa1,
+-      wa2_out  => m_wa2);
+-
+-  -- =========================================================== M stage
+-  m_final <= q_b when m_ctrl.memory_read = '1' else m_res1;
++      clk   => clk,
++      reset => reset,
++      en    => '1',
++      flush => '0',
++      d_in  => x2m_in,
++      d_out => x2m);
++
++  -- =========================================================================
++  -- 5. MEMORY STAGE (M) & M/W PIPELINE REGISTER
++  -- =========================================================================
++  m_final <= q_b when x2m.ctrl.memory_read = '1' else x2m.res1;
++
++  mw_in <= (
++    ctrl => x2m.ctrl,
++    res1 => m_final,
++    res2 => x2m.res2,
++    wa1  => x2m.wa1,
++    wa2  => x2m.wa2);
+ 
+   u_m_w : entity work.m_w
+     port map (
+-      clk      => clk,
+-      reset    => reset,
+-      en       => '1',
+-      flush    => '0',
+-      ctrl_in  => m_ctrl,
+-      res1_in  => m_final,
+-      res2_in  => m_res2,
+-      wa1_in   => m_wa1,
+-      wa2_in   => m_wa2,
+-      ctrl_out => w_ctrl,
+-      res1_out => w_res1,
+-      res2_out => w_res2,
+-      wa1_out  => w_wa1,
+-      wa2_out  => w_wa2);
+-
+-  -- =========================================================== W stage
+-  process (clk)
++      clk   => clk,
++      reset => reset,
++      en    => '1',
++      flush => '0',
++      d_in  => mw_in,
++      d_out => mw);
++
++  -- =========================================================================
++  -- 6. WRITE-BACK STAGE (W) & ARCHITECTURAL OUTPUTS
++  -- =========================================================================
++  PROC_OUT_PORT : process (clk)
+   begin
+     if rising_edge(clk) then
+       if reset = '1' then
+-        out_r <= (others => '0');
+-      elsif w_ctrl.write_out_port = '1' then
+-        out_r <= w_res1;
++        out_r <= WORD_ZERO;
++      elsif mw.ctrl.write_out_port = '1' then
++        out_r <= mw.res1;
+       end if;
+     end if;
+   end process;
+ 
+-  -- =========================================================== outputs
+   out_port <= out_r;
+   R_values <= regs;
+   pc_out   <= pc_q;
+diff --git a/rtl/x1_x2.vhd b/rtl/x1_x2.vhd
+index b44bec5..8605bd7 100644
+--- a/rtl/x1_x2.vhd
++++ b/rtl/x1_x2.vhd
+@@ -9,80 +9,31 @@ use work.cpu_pkg.all;
+ 
+ entity x1_x2 is
+   port (
+-    clk      : in  std_logic;
+-    reset    : in  std_logic;
+-    en       : in  std_logic;
+-    flush    : in  std_logic;
+-    ctrl_in  : in  ctrl_t;
+-    res1_in  : in  word_t;      -- ALU / IN result
+-    res2_in  : in  word_t;      -- second result (SWAP)
+-    a_in     : in  word_t;      -- forwarded operand A (store data / base)
+-    b_in     : in  word_t;      -- forwarded operand B (STD base)
+-    imm_in   : in  word_t;
+-    wa1_in   : in  raddr_t;
+-    wa2_in   : in  raddr_t;
+-    link_in  : in  word_t;
+-    ctrl_out : out ctrl_t;
+-    res1_out : out word_t;
+-    res2_out : out word_t;
+-    a_out    : out word_t;
+-    b_out    : out word_t;
+-    imm_out  : out word_t;
+-    wa1_out  : out raddr_t;
+-    wa2_out  : out raddr_t;
+-    link_out : out word_t
++    clk   : in  std_logic;
++    reset : in  std_logic;
++    en    : in  std_logic;
++    flush : in  std_logic;
++    d_in  : in  x1_x2_t;
++    d_out : out x1_x2_t
+   );
+ end entity x1_x2;
+ 
+ architecture rtl of x1_x2 is
+-  signal ctrl_r : ctrl_t  := CTRL_NOP;
+-  signal res1_r : word_t  := (others => '0');
+-  signal res2_r : word_t  := (others => '0');
+-  signal a_r    : word_t  := (others => '0');
+-  signal b_r    : word_t  := (others => '0');
+-  signal imm_r  : word_t  := (others => '0');
+-  signal wa1_r  : raddr_t := (others => '0');
+-  signal wa2_r  : raddr_t := (others => '0');
+-  signal link_r : word_t  := (others => '0');
++  signal reg : x1_x2_t := X1_X2_NOP;
+ begin
+   process (clk)
+   begin
+     if rising_edge(clk) then
+       if reset = '1' then
+-        ctrl_r <= CTRL_NOP;
+-        res1_r <= (others => '0');
+-        res2_r <= (others => '0');
+-        a_r    <= (others => '0');
+-        b_r    <= (others => '0');
+-        imm_r  <= (others => '0');
+-        wa1_r  <= (others => '0');
+-        wa2_r  <= (others => '0');
+-        link_r <= (others => '0');
++        reg <= X1_X2_NOP;
+       elsif flush = '1' or en = '1' then
++        reg <= d_in;
+         if flush = '1' then
+-          ctrl_r <= CTRL_NOP;
+-        else
+-          ctrl_r <= ctrl_in;
++          reg.ctrl <= CTRL_NOP;
+         end if;
+-        res1_r <= res1_in;
+-        res2_r <= res2_in;
+-        a_r    <= a_in;
+-        b_r    <= b_in;
+-        imm_r  <= imm_in;
+-        wa1_r  <= wa1_in;
+-        wa2_r  <= wa2_in;
+-        link_r <= link_in;
+       end if;
+     end if;
+   end process;
+ 
+-  ctrl_out <= ctrl_r;
+-  res1_out <= res1_r;
+-  res2_out <= res2_r;
+-  a_out    <= a_r;
+-  b_out    <= b_r;
+-  imm_out  <= imm_r;
+-  wa1_out  <= wa1_r;
+-  wa2_out  <= wa2_r;
+-  link_out <= link_r;
++  d_out <= reg;
+ end architecture rtl;
+diff --git a/rtl/x2_m.vhd b/rtl/x2_m.vhd
+index 7aadd86..edddc2b 100644
+--- a/rtl/x2_m.vhd
++++ b/rtl/x2_m.vhd
+@@ -1,7 +1,7 @@
+ -------------------------------------------------------------------------------
+ -- x2_m.vhd -- X2/M pipeline register.
+--- Note: the X2 stage is never flushed (older than any mispredicting branch); flush exists for completeness.
+--- flush loads CTRL_NOP and has priority over en.
++-- Note: the X2 stage is never flushed (older than any mispredicting branch);
++-- flush exists for completeness and loads CTRL_NOP with priority over en.
+ -------------------------------------------------------------------------------
+ library ieee;
+ use ieee.std_logic_1164.all;
+@@ -9,56 +9,31 @@ use work.cpu_pkg.all;
+ 
+ entity x2_m is
+   port (
+-    clk      : in  std_logic;
+-    reset    : in  std_logic;
+-    en       : in  std_logic;
+-    flush    : in  std_logic;
+-    ctrl_in  : in  ctrl_t;
+-    res1_in  : in  word_t;
+-    res2_in  : in  word_t;
+-    wa1_in   : in  raddr_t;
+-    wa2_in   : in  raddr_t;
+-    ctrl_out : out ctrl_t;
+-    res1_out : out word_t;
+-    res2_out : out word_t;
+-    wa1_out  : out raddr_t;
+-    wa2_out  : out raddr_t
++    clk   : in  std_logic;
++    reset : in  std_logic;
++    en    : in  std_logic;
++    flush : in  std_logic;
++    d_in  : in  x2_m_t;
++    d_out : out x2_m_t
+   );
+ end entity x2_m;
+ 
+ architecture rtl of x2_m is
+-  signal ctrl_r : ctrl_t  := CTRL_NOP;
+-  signal res1_r : word_t  := (others => '0');
+-  signal res2_r : word_t  := (others => '0');
+-  signal wa1_r  : raddr_t := (others => '0');
+-  signal wa2_r  : raddr_t := (others => '0');
++  signal reg : x2_m_t := X2_M_NOP;
+ begin
+   process (clk)
+   begin
+     if rising_edge(clk) then
+       if reset = '1' then
+-        ctrl_r <= CTRL_NOP;
+-        res1_r <= (others => '0');
+-        res2_r <= (others => '0');
+-        wa1_r  <= (others => '0');
+-        wa2_r  <= (others => '0');
++        reg <= X2_M_NOP;
+       elsif flush = '1' or en = '1' then
++        reg <= d_in;
+         if flush = '1' then
+-          ctrl_r <= CTRL_NOP;
+-        else
+-          ctrl_r <= ctrl_in;
++          reg.ctrl <= CTRL_NOP;
+         end if;
+-        res1_r <= res1_in;
+-        res2_r <= res2_in;
+-        wa1_r  <= wa1_in;
+-        wa2_r  <= wa2_in;
+       end if;
+     end if;
+   end process;
+ 
+-  ctrl_out <= ctrl_r;
+-  res1_out <= res1_r;
+-  res2_out <= res2_r;
+-  wa1_out  <= wa1_r;
+-  wa2_out  <= wa2_r;
++  d_out <= reg;
+ end architecture rtl;
+diff --git a/scripts/questa_run.do b/scripts/questa_run.do
+index 9a3adaa..9361ffc 100644
+--- a/scripts/questa_run.do
++++ b/scripts/questa_run.do
+@@ -6,7 +6,7 @@ if {[string match "tb_top" $tb] || [string match "tb_system" $tb]} {
+     add wave -radix hex /$tb/clk /$tb/reset /$tb/intr_in /$tb/halted
+     add wave -radix hex /$tb/dut/pc_out /$tb/dut/sp_out /$tb/dut/ccr_out /$tb/dut/out_port
+     add wave -radix hex /$tb/dut/R_values
+-    add wave -radix hex -group fetch  /$tb/dut/pc_q /$tb/dut/instr /$tb/dut/ifd_valid /$tb/dut/ifd_is_vec
++    add wave -radix hex -group fetch  /$tb/dut/pc_q /$tb/dut/instr /$tb/dut/ifd.valid /$tb/dut/ifd.is_vec
+     add wave -radix hex -group hazard /$tb/dut/stall /$tb/dut/mispredict /$tb/dut/d_redirect \
+                                       /$tb/dut/fetch_hold /$tb/dut/d_inject /$tb/dut/intr_pending /$tb/dut/in_isr
+     add wave -radix hex -group fwd    /$tb/dut/fsel_a /$tb/dut/fsel_b /$tb/dut/fa /$tb/dut/fb
+diff --git a/tb/tb_branch_check.vhd b/tb/tb_branch_check.vhd
+index efdffcd..b8b8c3a 100644
+--- a/tb/tb_branch_check.vhd
++++ b/tb/tb_branch_check.vhd
+@@ -1,7 +1,7 @@
+ -------------------------------------------------------------------------------
+ -- tb_branch_check.vhd -- directed self-checking testbench for branch_check
+ -- Every condition (Z, N, C) against every flag combination, plus is_jcc=0
+--- (no branch: never mispredicts) and the reserved cond "00".
++-- (no branch: never mispredicts), clr_mask on taken Jcc, and reserved "00".
+ -------------------------------------------------------------------------------
+ library ieee;
+ use ieee.std_logic_1164.all;
+@@ -18,14 +18,16 @@ architecture sim of tb_branch_check is
+   signal ccr        : std_logic_vector(3 downto 0) := "0000";
+   signal taken      : std_logic;
+   signal mispredict : std_logic;
++  signal clr_mask   : std_logic_vector(2 downto 0);
+ begin
+   dut : entity work.branch_check
+     port map (is_jcc => is_jcc, cond => cond, ccr => ccr,
+-              taken => taken, mispredict => mispredict);
++              taken => taken, mispredict => mispredict, clr_mask => clr_mask);
+ 
+   stim : process
+-    variable errs : natural := 0;
+-    variable f    : std_logic;
++    variable errs     : natural := 0;
++    variable f        : std_logic;
++    variable exp_mask : std_logic_vector(2 downto 0);
+   begin
+     for j in 0 to 1 loop
+       for cd in 0 to 3 loop
+@@ -40,6 +42,15 @@ begin
+             when 3 => f := ccr(CCR_C);
+             when others => f := '0';
+           end case;
++          exp_mask := "000";
++          if j = 1 and f = '1' then
++            case cd is
++              when 1 => exp_mask := "001";
++              when 2 => exp_mask := "010";
++              when 3 => exp_mask := "100";
++              when others => exp_mask := "000";
++            end case;
++          end if;
+           if j = 1 then
+             check_sl(taken, f, "taken cond=" & integer'image(cd) &
+                      " flags=" & integer'image(fl), errs);
+@@ -49,6 +60,8 @@ begin
+             check_sl(taken, '0', "no jcc taken", errs);
+             check_sl(mispredict, '0', "no jcc mispredict", errs);
+           end if;
++          check_eq(clr_mask, exp_mask, "clr_mask cond=" & integer'image(cd) &
++                   " flags=" & integer'image(fl), errs);
+           check_sl(taken and mispredict, '0', "exclusive", errs);
+         end loop;
+       end loop;
+@@ -57,6 +70,7 @@ begin
+     is_jcc <= '1'; cond <= COND_Z; ccr <= "1000";
+     wait for 1 ns;
+     check_sl(mispredict, '1', "bit3 ignored", errs);
++    check_eq(clr_mask, "000", "bit3 clr_mask", errs);
+     finish_tb("tb_branch_check", errs);
+     wait;
+   end process;
+diff --git a/tb/tb_d_x1.vhd b/tb/tb_d_x1.vhd
+index 6c4a041..535398e 100644
+--- a/tb/tb_d_x1.vhd
++++ b/tb/tb_d_x1.vhd
+@@ -14,23 +14,15 @@ end entity tb_d_x1;
+ architecture sim of tb_d_x1 is
+   signal clk, reset : std_logic := '1';
+   signal en, flush  : std_logic := '0';
+-  signal ctrl_in, ctrl_out : ctrl_t := CTRL_NOP;
+-  signal a_in, b_in, imm_in, link_in     : word_t := (others => '0');
+-  signal a_out, b_out, imm_out, link_out : word_t;
+-  signal ra1_in, ra2_in, wa1_in, wa2_in     : raddr_t := "000";
+-  signal ra1_out, ra2_out, wa1_out, wa2_out : raddr_t;
+-  signal c_add : ctrl_t;
++  signal d_in       : d_x1_t := D_X1_NOP;
++  signal d_out      : d_x1_t;
++  signal c_add      : ctrl_t;
+ begin
+   clk <= not clk after 5 ns;
+ 
+   dut : entity work.d_x1
+     port map (clk => clk, reset => reset, en => en, flush => flush,
+-              ctrl_in => ctrl_in, a_in => a_in, b_in => b_in,
+-              ra1_in => ra1_in, ra2_in => ra2_in, wa1_in => wa1_in,
+-              wa2_in => wa2_in, imm_in => imm_in, link_in => link_in,
+-              ctrl_out => ctrl_out, a_out => a_out, b_out => b_out,
+-              ra1_out => ra1_out, ra2_out => ra2_out, wa1_out => wa1_out,
+-              wa2_out => wa2_out, imm_out => imm_out, link_out => link_out);
++              d_in => d_in, d_out => d_out);
+ 
+   -- an ADD control word
+   process
+@@ -58,45 +50,45 @@ begin
+   begin
+     en <= '1';
+     wait for 1 ns;
+-    ctrl_in <= c_add; a_in <= x"11111111"; b_in <= x"22222222";
+-    ra1_in <= "001"; ra2_in <= "010"; wa1_in <= "011"; wa2_in <= "100";
+-    imm_in <= x"FFFF8000"; link_in <= x"00000ABC";
++    d_in.ctrl <= c_add; d_in.a <= x"11111111"; d_in.b <= x"22222222";
++    d_in.ra1 <= "001"; d_in.ra2 <= "010"; d_in.wa1 <= "011"; d_in.wa2 <= "100";
++    d_in.imm <= x"FFFF8000"; d_in.link <= x"00000ABC";
+     tick;
+-    check(ctrl_out = CTRL_NOP, "reset -> bubble", errs);
+-    check_eq(a_out, x"00000000", "reset a", errs);
++    check(d_out.ctrl = CTRL_NOP, "reset -> bubble", errs);
++    check_eq(d_out.a, x"00000000", "reset a", errs);
+ 
+     reset <= '0'; tick;
+-    check(ctrl_out = c_add, "capture ctrl", errs);
+-    check_eq(a_out, x"11111111", "capture a", errs);
+-    check_eq(b_out, x"22222222", "capture b", errs);
+-    check_eq(ra1_out, "001", "capture ra1", errs);
+-    check_eq(ra2_out, "010", "capture ra2", errs);
+-    check_eq(wa1_out, "011", "capture wa1", errs);
+-    check_eq(wa2_out, "100", "capture wa2", errs);
+-    check_eq(imm_out, x"FFFF8000", "capture imm (min)", errs);
+-    check_eq(link_out, x"00000ABC", "capture link", errs);
++    check(d_out.ctrl = c_add, "capture ctrl", errs);
++    check_eq(d_out.a, x"11111111", "capture a", errs);
++    check_eq(d_out.b, x"22222222", "capture b", errs);
++    check_eq(d_out.ra1, "001", "capture ra1", errs);
++    check_eq(d_out.ra2, "010", "capture ra2", errs);
++    check_eq(d_out.wa1, "011", "capture wa1", errs);
++    check_eq(d_out.wa2, "100", "capture wa2", errs);
++    check_eq(d_out.imm, x"FFFF8000", "capture imm (min)", errs);
++    check_eq(d_out.link, x"00000ABC", "capture link", errs);
+ 
+     -- hold
+-    en <= '0'; a_in <= x"FFFFFFFF"; ctrl_in <= CTRL_NOP; tick;
+-    check(ctrl_out = c_add, "hold ctrl", errs);
+-    check_eq(a_out, x"11111111", "hold a", errs);
++    en <= '0'; d_in.a <= x"FFFFFFFF"; d_in.ctrl <= CTRL_NOP; tick;
++    check(d_out.ctrl = c_add, "hold ctrl", errs);
++    check_eq(d_out.a, x"11111111", "hold a", errs);
+ 
+     -- flush while en = 0: bubble inserted anyway
+     flush <= '1'; tick;
+-    check(ctrl_out = CTRL_NOP, "flush beats hold", errs);
+-    check_eq(a_out, x"FFFFFFFF", "data captured on flush", errs);
++    check(d_out.ctrl = CTRL_NOP, "flush beats hold", errs);
++    check_eq(d_out.a, x"FFFFFFFF", "data captured on flush", errs);
+ 
+     -- flush with en = 1 and a valid control word
+-    en <= '1'; ctrl_in <= c_add; tick;
+-    check(ctrl_out = CTRL_NOP, "flush -> bubble", errs);
+-    check_sl(ctrl_out.write_port_1_enable, '0', "bubble does not write", errs);
++    en <= '1'; d_in.ctrl <= c_add; tick;
++    check(d_out.ctrl = CTRL_NOP, "flush -> bubble", errs);
++    check_sl(d_out.ctrl.write_port_1_enable, '0', "bubble does not write", errs);
+ 
+     flush <= '0'; tick;
+-    check(ctrl_out = c_add, "normal again", errs);
+-    check_eq(a_out, x"FFFFFFFF", "max a", errs);
++    check(d_out.ctrl = c_add, "normal again", errs);
++    check_eq(d_out.a, x"FFFFFFFF", "max a", errs);
+ 
+     reset <= '1'; tick;
+-    check(ctrl_out = CTRL_NOP, "reset again", errs);
++    check(d_out.ctrl = CTRL_NOP, "reset again", errs);
+     finish_tb("tb_d_x1", errs);
+     wait;
+   end process;
+diff --git a/tb/tb_if_d.vhd b/tb/tb_if_d.vhd
+index 9d0a86f..9a5f54a 100644
+--- a/tb/tb_if_d.vhd
++++ b/tb/tb_if_d.vhd
+@@ -12,26 +12,18 @@ entity tb_if_d is
+ end entity tb_if_d;
+ 
+ architecture sim of tb_if_d is
+-  signal clk        : std_logic := '0';
+-  signal reset      : std_logic := '1';
+-  signal en         : std_logic := '1';
+-  signal flush      : std_logic := '0';
+-  signal valid_in   : std_logic := '1';
+-  signal is_vec_in  : std_logic := '0';
+-  signal pc_in      : word_t := (others => '0');
+-  signal pc1_in     : word_t := (others => '0');
+-  signal valid_out  : std_logic;
+-  signal is_vec_out : std_logic;
+-  signal pc_out     : word_t;
+-  signal pc1_out    : word_t;
++  signal clk   : std_logic := '0';
++  signal reset : std_logic := '1';
++  signal en    : std_logic := '1';
++  signal flush : std_logic := '0';
++  signal d_in  : if_d_t := (valid => '1', is_vec => '0', pc => WORD_ZERO, pc1 => WORD_ZERO);
++  signal d_out : if_d_t;
+ begin
+   clk <= not clk after 5 ns;
+ 
+   dut : entity work.if_d
+     port map (clk => clk, reset => reset, en => en, flush => flush,
+-              valid_in => valid_in, is_vec_in => is_vec_in, pc_in => pc_in,
+-              pc1_in => pc1_in, valid_out => valid_out, is_vec_out => is_vec_out,
+-              pc_out => pc_out, pc1_out => pc1_out);
++              d_in => d_in, d_out => d_out);
+ 
+   stim : process
+     variable errs : natural := 0;
+@@ -41,41 +33,41 @@ begin
+       wait for 1 ns;
+     end procedure;
+   begin
+-    pc_in <= x"00000123"; pc1_in <= x"00000124"; is_vec_in <= '1';
++    d_in.pc <= x"00000123"; d_in.pc1 <= x"00000124"; d_in.is_vec <= '1';
+     tick;
+-    check_sl(valid_out, '0', "reset valid", errs);
+-    check_sl(is_vec_out, '0', "reset is_vec", errs);
+-    check_eq(pc_out, x"00000000", "reset pc", errs);
++    check_sl(d_out.valid, '0', "reset valid", errs);
++    check_sl(d_out.is_vec, '0', "reset is_vec", errs);
++    check_eq(d_out.pc, x"00000000", "reset pc", errs);
+ 
+-    reset <= '0'; is_vec_in <= '0'; tick;
+-    check_sl(valid_out, '1', "capture valid", errs);
+-    check_eq(pc_out, x"00000123", "capture pc", errs);
+-    check_eq(pc1_out, x"00000124", "capture pc1", errs);
++    reset <= '0'; d_in.is_vec <= '0'; tick;
++    check_sl(d_out.valid, '1', "capture valid", errs);
++    check_eq(d_out.pc, x"00000123", "capture pc", errs);
++    check_eq(d_out.pc1, x"00000124", "capture pc1", errs);
+ 
+     -- stall: hold
+-    en <= '0'; pc_in <= x"00000200"; pc1_in <= x"00000201"; tick;
+-    check_eq(pc_out, x"00000123", "hold pc", errs);
+-    check_sl(valid_out, '1', "hold valid", errs);
++    en <= '0'; d_in.pc <= x"00000200"; d_in.pc1 <= x"00000201"; tick;
++    check_eq(d_out.pc, x"00000123", "hold pc", errs);
++    check_sl(d_out.valid, '1', "hold valid", errs);
+ 
+     -- flush while stalled: flush wins
+     flush <= '1'; tick;
+-    check_sl(valid_out, '0', "flush beats hold", errs);
+-    check_eq(pc_out, x"00000200", "flush captures pc", errs);
++    check_sl(d_out.valid, '0', "flush beats hold", errs);
++    check_eq(d_out.pc, x"00000200", "flush captures pc", errs);
+ 
+     -- vector word
+-    flush <= '0'; en <= '1'; is_vec_in <= '1'; pc_in <= x"00000002"; tick;
+-    check_sl(is_vec_out, '1', "is_vec captured", errs);
+-    check_sl(valid_out, '1', "vector word valid", errs);
++    flush <= '0'; en <= '1'; d_in.is_vec <= '1'; d_in.pc <= x"00000002"; tick;
++    check_sl(d_out.is_vec, '1', "is_vec captured", errs);
++    check_sl(d_out.valid, '1', "vector word valid", errs);
+     flush <= '1'; tick;
+-    check_sl(is_vec_out, '0', "flush clears is_vec", errs);
++    check_sl(d_out.is_vec, '0', "flush clears is_vec", errs);
+ 
+     -- boundary pc
+-    flush <= '0'; is_vec_in <= '0'; pc_in <= x"FFFFFFFF"; pc1_in <= x"00000000"; tick;
+-    check_eq(pc_out, x"FFFFFFFF", "max pc", errs);
+-    check_eq(pc1_out, x"00000000", "wrapped pc1", errs);
++    flush <= '0'; d_in.is_vec <= '0'; d_in.pc <= x"FFFFFFFF"; d_in.pc1 <= x"00000000"; tick;
++    check_eq(d_out.pc, x"FFFFFFFF", "max pc", errs);
++    check_eq(d_out.pc1, x"00000000", "wrapped pc1", errs);
+ 
+     reset <= '1'; tick;
+-    check_sl(valid_out, '0', "reset again", errs);
++    check_sl(d_out.valid, '0', "reset again", errs);
+     finish_tb("tb_if_d", errs);
+     wait;
+   end process;
+diff --git a/tb/tb_m_w.vhd b/tb/tb_m_w.vhd
+index 86b7e1a..981f35f 100644
+--- a/tb/tb_m_w.vhd
++++ b/tb/tb_m_w.vhd
+@@ -14,21 +14,15 @@ end entity tb_m_w;
+ architecture sim of tb_m_w is
+   signal clk, reset : std_logic := '1';
+   signal en, flush  : std_logic := '0';
+-  signal ctrl_in, ctrl_out : ctrl_t := CTRL_NOP;
+-  signal res1_in, res2_in   : word_t := (others => '0');
+-  signal res1_out, res2_out : word_t;
+-  signal wa1_in, wa2_in     : raddr_t := "000";
+-  signal wa1_out, wa2_out   : raddr_t;
+-  signal c_swap : ctrl_t;
++  signal d_in       : m_w_t := M_W_NOP;
++  signal d_out      : m_w_t;
++  signal c_swap     : ctrl_t;
+ begin
+   clk <= not clk after 5 ns;
+ 
+   dut : entity work.m_w
+     port map (clk => clk, reset => reset, en => en, flush => flush,
+-              ctrl_in => ctrl_in, res1_in => res1_in, res2_in => res2_in,
+-              wa1_in => wa1_in, wa2_in => wa2_in, ctrl_out => ctrl_out,
+-              res1_out => res1_out, res2_out => res2_out,
+-              wa1_out => wa1_out, wa2_out => wa2_out);
++              d_in => d_in, d_out => d_out);
+ 
+   -- a SWAP control word (both write ports)
+   process
+@@ -57,31 +51,31 @@ begin
+   begin
+     en <= '1';
+     wait for 1 ns;
+-    ctrl_in <= c_swap; res1_in <= x"80000000"; res2_in <= x"7FFFFFFF";
+-    wa1_in <= "000"; wa2_in <= "111";
++    d_in.ctrl <= c_swap; d_in.res1 <= x"80000000"; d_in.res2 <= x"7FFFFFFF";
++    d_in.wa1 <= "000"; d_in.wa2 <= "111";
+     tick;
+-    check(ctrl_out = CTRL_NOP, "reset bubble", errs);
+-    check_eq(res1_out, x"00000000", "reset res1", errs);
++    check(d_out.ctrl = CTRL_NOP, "reset bubble", errs);
++    check_eq(d_out.res1, x"00000000", "reset res1", errs);
+     reset <= '0'; tick;
+-    check(ctrl_out = c_swap, "capture ctrl", errs);
+-    check_eq(res1_out, x"80000000", "res1 min", errs);
+-    check_eq(res2_out, x"7FFFFFFF", "res2 max", errs);
+-    check_eq(wa1_out, "000", "wa1 R0", errs);
+-    check_eq(wa2_out, "111", "wa2 R7", errs);
++    check(d_out.ctrl = c_swap, "capture ctrl", errs);
++    check_eq(d_out.res1, x"80000000", "res1 min", errs);
++    check_eq(d_out.res2, x"7FFFFFFF", "res2 max", errs);
++    check_eq(d_out.wa1, "000", "wa1 R0", errs);
++    check_eq(d_out.wa2, "111", "wa2 R7", errs);
+ 
+-    en <= '0'; res1_in <= x"00000000"; ctrl_in <= CTRL_NOP; tick;
+-    check(ctrl_out = c_swap, "hold ctrl", errs);
+-    check_eq(res1_out, x"80000000", "hold res1", errs);
++    en <= '0'; d_in.res1 <= x"00000000"; d_in.ctrl <= CTRL_NOP; tick;
++    check(d_out.ctrl = c_swap, "hold ctrl", errs);
++    check_eq(d_out.res1, x"80000000", "hold res1", errs);
+ 
+     flush <= '1'; tick;
+-    check(ctrl_out = CTRL_NOP, "flush beats hold", errs);
++    check(d_out.ctrl = CTRL_NOP, "flush beats hold", errs);
+ 
+-    flush <= '0'; en <= '1'; ctrl_in <= c_swap; tick;
+-    check(ctrl_out = c_swap, "resume", errs);
+-    check_eq(res1_out, x"00000000", "zero res1", errs);
++    flush <= '0'; en <= '1'; d_in.ctrl <= c_swap; tick;
++    check(d_out.ctrl = c_swap, "resume", errs);
++    check_eq(d_out.res1, x"00000000", "zero res1", errs);
+ 
+     reset <= '1'; tick;
+-    check(ctrl_out = CTRL_NOP, "reset again", errs);
++    check(d_out.ctrl = CTRL_NOP, "reset again", errs);
+     finish_tb("tb_m_w", errs);
+     wait;
+   end process;
+diff --git a/tb/tb_x1_x2.vhd b/tb/tb_x1_x2.vhd
+index 2180407..406caa9 100644
+--- a/tb/tb_x1_x2.vhd
++++ b/tb/tb_x1_x2.vhd
+@@ -14,23 +14,15 @@ end entity tb_x1_x2;
+ architecture sim of tb_x1_x2 is
+   signal clk, reset : std_logic := '1';
+   signal en, flush  : std_logic := '0';
+-  signal ctrl_in, ctrl_out : ctrl_t := CTRL_NOP;
+-  signal res1_in, res2_in, a_in, b_in, imm_in, link_in : word_t := (others => '0');
+-  signal res1_out, res2_out, a_out, b_out, imm_out, link_out : word_t;
+-  signal wa1_in, wa2_in   : raddr_t := "000";
+-  signal wa1_out, wa2_out : raddr_t;
+-  signal c_st : ctrl_t;
++  signal d_in       : x1_x2_t := X1_X2_NOP;
++  signal d_out      : x1_x2_t;
++  signal c_st       : ctrl_t;
+ begin
+   clk <= not clk after 5 ns;
+ 
+   dut : entity work.x1_x2
+     port map (clk => clk, reset => reset, en => en, flush => flush,
+-              ctrl_in => ctrl_in, res1_in => res1_in, res2_in => res2_in,
+-              a_in => a_in, b_in => b_in, imm_in => imm_in, wa1_in => wa1_in,
+-              wa2_in => wa2_in, link_in => link_in, ctrl_out => ctrl_out,
+-              res1_out => res1_out, res2_out => res2_out, a_out => a_out,
+-              b_out => b_out, imm_out => imm_out, wa1_out => wa1_out,
+-              wa2_out => wa2_out, link_out => link_out);
++              d_in => d_in, d_out => d_out);
+ 
+   -- an STD control word
+   process
+@@ -56,35 +48,35 @@ begin
+   begin
+     en <= '1';
+     wait for 1 ns;
+-    ctrl_in <= c_st; res1_in <= x"00000001"; res2_in <= x"00000002";
+-    a_in <= x"0000000A"; b_in <= x"0000000B"; imm_in <= x"00000004";
+-    wa1_in <= "111"; wa2_in <= "110"; link_in <= x"00000100";
++    d_in.ctrl <= c_st; d_in.res1 <= x"00000001"; d_in.res2 <= x"00000002";
++    d_in.a <= x"0000000A"; d_in.b <= x"0000000B"; d_in.imm <= x"00000004";
++    d_in.wa1 <= "111"; d_in.wa2 <= "110"; d_in.link <= x"00000100";
+     tick;
+-    check(ctrl_out = CTRL_NOP, "reset bubble", errs);
++    check(d_out.ctrl = CTRL_NOP, "reset bubble", errs);
+     reset <= '0'; tick;
+-    check(ctrl_out = c_st, "capture ctrl", errs);
+-    check_eq(res1_out, x"00000001", "res1", errs);
+-    check_eq(res2_out, x"00000002", "res2", errs);
+-    check_eq(a_out, x"0000000A", "a", errs);
+-    check_eq(b_out, x"0000000B", "b", errs);
+-    check_eq(imm_out, x"00000004", "imm", errs);
+-    check_eq(wa1_out, "111", "wa1", errs);
+-    check_eq(wa2_out, "110", "wa2", errs);
+-    check_eq(link_out, x"00000100", "link", errs);
++    check(d_out.ctrl = c_st, "capture ctrl", errs);
++    check_eq(d_out.res1, x"00000001", "res1", errs);
++    check_eq(d_out.res2, x"00000002", "res2", errs);
++    check_eq(d_out.a, x"0000000A", "a", errs);
++    check_eq(d_out.b, x"0000000B", "b", errs);
++    check_eq(d_out.imm, x"00000004", "imm", errs);
++    check_eq(d_out.wa1, "111", "wa1", errs);
++    check_eq(d_out.wa2, "110", "wa2", errs);
++    check_eq(d_out.link, x"00000100", "link", errs);
+ 
+-    en <= '0'; res1_in <= x"FFFFFFFF"; tick;
+-    check_eq(res1_out, x"00000001", "hold", errs);
++    en <= '0'; d_in.res1 <= x"FFFFFFFF"; tick;
++    check_eq(d_out.res1, x"00000001", "hold", errs);
+ 
+     flush <= '1'; tick;
+-    check(ctrl_out = CTRL_NOP, "flush beats hold", errs);
+-    check_sl(ctrl_out.memory_write, '0', "flushed store does not write", errs);
++    check(d_out.ctrl = CTRL_NOP, "flush beats hold", errs);
++    check_sl(d_out.ctrl.memory_write, '0', "flushed store does not write", errs);
+ 
+     flush <= '0'; en <= '1'; tick;
+-    check(ctrl_out = c_st, "resume", errs);
+-    check_eq(res1_out, x"FFFFFFFF", "max res1", errs);
++    check(d_out.ctrl = c_st, "resume", errs);
++    check_eq(d_out.res1, x"FFFFFFFF", "max res1", errs);
+ 
+     reset <= '1'; tick;
+-    check(ctrl_out = CTRL_NOP, "reset again", errs);
++    check(d_out.ctrl = CTRL_NOP, "reset again", errs);
+     finish_tb("tb_x1_x2", errs);
+     wait;
+   end process;
+diff --git a/tb/tb_x2_m.vhd b/tb/tb_x2_m.vhd
+index 75caade..5efb03f 100644
+--- a/tb/tb_x2_m.vhd
++++ b/tb/tb_x2_m.vhd
+@@ -14,21 +14,15 @@ end entity tb_x2_m;
+ architecture sim of tb_x2_m is
+   signal clk, reset : std_logic := '1';
+   signal en, flush  : std_logic := '0';
+-  signal ctrl_in, ctrl_out : ctrl_t := CTRL_NOP;
+-  signal res1_in, res2_in   : word_t := (others => '0');
+-  signal res1_out, res2_out : word_t;
+-  signal wa1_in, wa2_in     : raddr_t := "000";
+-  signal wa1_out, wa2_out   : raddr_t;
+-  signal c_swap : ctrl_t;
++  signal d_in       : x2_m_t := X2_M_NOP;
++  signal d_out      : x2_m_t;
++  signal c_swap     : ctrl_t;
+ begin
+   clk <= not clk after 5 ns;
+ 
+   dut : entity work.x2_m
+     port map (clk => clk, reset => reset, en => en, flush => flush,
+-              ctrl_in => ctrl_in, res1_in => res1_in, res2_in => res2_in,
+-              wa1_in => wa1_in, wa2_in => wa2_in, ctrl_out => ctrl_out,
+-              res1_out => res1_out, res2_out => res2_out,
+-              wa1_out => wa1_out, wa2_out => wa2_out);
++              d_in => d_in, d_out => d_out);
+ 
+   -- a SWAP control word (both write ports)
+   process
+@@ -57,31 +51,31 @@ begin
+   begin
+     en <= '1';
+     wait for 1 ns;
+-    ctrl_in <= c_swap; res1_in <= x"80000000"; res2_in <= x"7FFFFFFF";
+-    wa1_in <= "000"; wa2_in <= "111";
++    d_in.ctrl <= c_swap; d_in.res1 <= x"80000000"; d_in.res2 <= x"7FFFFFFF";
++    d_in.wa1 <= "000"; d_in.wa2 <= "111";
+     tick;
+-    check(ctrl_out = CTRL_NOP, "reset bubble", errs);
+-    check_eq(res1_out, x"00000000", "reset res1", errs);
++    check(d_out.ctrl = CTRL_NOP, "reset bubble", errs);
++    check_eq(d_out.res1, x"00000000", "reset res1", errs);
+     reset <= '0'; tick;
+-    check(ctrl_out = c_swap, "capture ctrl", errs);
+-    check_eq(res1_out, x"80000000", "res1 min", errs);
+-    check_eq(res2_out, x"7FFFFFFF", "res2 max", errs);
+-    check_eq(wa1_out, "000", "wa1 R0", errs);
+-    check_eq(wa2_out, "111", "wa2 R7", errs);
++    check(d_out.ctrl = c_swap, "capture ctrl", errs);
++    check_eq(d_out.res1, x"80000000", "res1 min", errs);
++    check_eq(d_out.res2, x"7FFFFFFF", "res2 max", errs);
++    check_eq(d_out.wa1, "000", "wa1 R0", errs);
++    check_eq(d_out.wa2, "111", "wa2 R7", errs);
+ 
+-    en <= '0'; res1_in <= x"00000000"; ctrl_in <= CTRL_NOP; tick;
+-    check(ctrl_out = c_swap, "hold ctrl", errs);
+-    check_eq(res1_out, x"80000000", "hold res1", errs);
++    en <= '0'; d_in.res1 <= x"00000000"; d_in.ctrl <= CTRL_NOP; tick;
++    check(d_out.ctrl = c_swap, "hold ctrl", errs);
++    check_eq(d_out.res1, x"80000000", "hold res1", errs);
+ 
+     flush <= '1'; tick;
+-    check(ctrl_out = CTRL_NOP, "flush beats hold", errs);
++    check(d_out.ctrl = CTRL_NOP, "flush beats hold", errs);
+ 
+-    flush <= '0'; en <= '1'; ctrl_in <= c_swap; tick;
+-    check(ctrl_out = c_swap, "resume", errs);
+-    check_eq(res1_out, x"00000000", "zero res1", errs);
++    flush <= '0'; en <= '1'; d_in.ctrl <= c_swap; tick;
++    check(d_out.ctrl = c_swap, "resume", errs);
++    check_eq(d_out.res1, x"00000000", "zero res1", errs);
+ 
+     reset <= '1'; tick;
+-    check(ctrl_out = CTRL_NOP, "reset again", errs);
++    check(d_out.ctrl = CTRL_NOP, "reset again", errs);
+     finish_tb("tb_x2_m", errs);
+     wait;
+   end process;

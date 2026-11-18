@@ -46,4 +46,7 @@ vsim -c "-gMEM_FILE=programs/ta_test2.mem" "-gGOLDEN_FILE=programs/ta_test2.gold
 # if make all fails 
 $env:PATH = "C:\Program Files\Git\usr\bin;" + $env:PATH
 Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
-
+  
+# to run these Tests (isr_pulse) and (poll2)
+vsim -c "-gMEM_FILE=programs/isr_pulse.mem" "-gGOLDEN_FILE=programs/isr_pulse.golden" "-gIRQ_CYCLE=14" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+vsim -c "-gMEM_FILE=programs/poll2.mem" "-gGOLDEN_FILE=programs/poll2.golden" "-gIRQ_CYCLE=30" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"

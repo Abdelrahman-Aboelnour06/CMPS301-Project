@@ -3,3 +3,4 @@
 # Calculate Fmax from WNS:  Fmax (MHz) = 1000 / (5.0 - WNS)
 
 create_clock -period 10.000 -name sys_clk [get_ports clk]
+    

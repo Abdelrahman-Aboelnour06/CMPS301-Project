@@ -55,7 +55,6 @@ begin
     d_in.immediate <= x"8000"; d_in.immediate_unsigned <= '1'; d_in.link_address <= x"00000ABC";
     tick;
     check(d_out.control = CTRL_NOP, "reset -> bubble", errs);
-    check_eq(d_out.operand_a, x"00000000", "reset a", errs);
 
     reset <= '0'; tick;
     check(d_out.control = c_add, "capture ctrl", errs);

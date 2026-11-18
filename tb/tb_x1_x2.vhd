@@ -49,14 +49,13 @@ begin
     en <= '1';
     wait for 1 ns;
     d_in.control <= c_st; d_in.result_1 <= x"00000001";
-    d_in.operand_a <= x"0000000A"; d_in.operand_b <= x"0000000B"; d_in.immediate <= x"0004";
+    d_in.operand_b <= x"0000000B"; d_in.immediate <= x"0004";
     d_in.write_addr_1 <= "111"; d_in.link_address <= x"00000100";
     tick;
     check(d_out.control = CTRL_NOP, "reset bubble", errs);
     reset <= '0'; tick;
     check(d_out.control = c_st, "capture ctrl", errs);
     check_eq(d_out.result_1, x"00000001", "res1", errs);
-    check_eq(d_out.operand_a, x"0000000A", "a", errs);
     check_eq(d_out.operand_b, x"0000000B", "b", errs);
     check_eq(d_out.immediate, x"0004", "imm", errs);
     check_eq(d_out.write_addr_1, "111", "wa1", errs);

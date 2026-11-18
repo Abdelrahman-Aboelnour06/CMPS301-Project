@@ -205,7 +205,6 @@ package cpu_pkg is
   type x1_x2_t is record
     control               : ctrl_t;
     result_1              : word_t;
-    operand_a             : word_t;
     operand_b             : word_t;
     immediate             : imm16_t;
     write_addr_1          : raddr_t;
@@ -215,7 +214,6 @@ package cpu_pkg is
   constant X1_X2_NOP : x1_x2_t := (
     control               => CTRL_NOP,
     result_1              => WORD_ZERO,
-    operand_a             => WORD_ZERO,
     operand_b             => WORD_ZERO,
     immediate             => IMM16_ZERO,
     write_addr_1          => "000",

@@ -36,7 +36,6 @@ begin
     tick;
     check_sl(d_out.is_valid, '0', "reset valid", errs);
     check_sl(d_out.is_interrupt_vector, '0', "reset is_vec", errs);
-    check_eq(d_out.program_counter, x"00000000", "reset pc", errs);
 
     reset <= '0'; d_in.is_interrupt_vector <= '0'; tick;
     check_sl(d_out.is_valid, '1', "capture valid", errs);

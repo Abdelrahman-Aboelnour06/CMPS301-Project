@@ -30,7 +30,8 @@ begin
   begin
     if rising_edge(clk) then
       if reset = '1' then
-        reg <= IF_D_NOP;
+        reg.is_valid <= '0';
+        reg.is_interrupt_vector <= '0';
       elsif flush = '1' then
         reg.is_valid  <= '0';
         reg.is_interrupt_vector <= '0';

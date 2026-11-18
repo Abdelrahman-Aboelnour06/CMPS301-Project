@@ -1,15 +1,17 @@
 # =============================================================================
 # CMPS 301 six-stage pipelined processor -- GHDL build
 #
-#   make all              analyse everything, run every testbench, exit 0 only
-#                         if all of them print PASS
-#   make <module>         run tb/tb_<module>.vhd   (e.g. make alu, make top)
-#   make hazards          pipeline hazard integration test
-#   make system           run programs/demo.mem against programs/demo.golden
-#   make system MEM=programs/foo.mem GOLDEN=programs/foo.golden IRQ=-1
-#   make spec             rebuild doc/spec.pdf (pdflatex, two passes)
-#   make clean
+# make all              analyse everything, run every testbench, exit 0 only
+#                       if all of them print PASS
+# make <module>         run tb/tb_<module>.vhd   (e.g. make alu, make top)
+# make hazards          pipeline hazard integration test
+# make system           run programs/demo.mem against programs/demo.golden
+# make system MEM=programs/foo.mem GOLDEN=programs/foo.golden IRQ=-1
+# make spec             rebuild doc/spec.pdf (pdflatex, two passes)
+# make clean            remove simulation/build artifacts
+# make distclean        clean + remove Vivado rtl/project_1/
 # =============================================================================
+
 GHDL     ?= ghdl
 WORK     := build
 GFLAGS   := --std=08 --workdir=$(WORK)
@@ -33,17 +35,21 @@ MODULES   := pc pc_mux instr_mem if_d regfile control hazard_unit d_x1 \
 TESTS     := $(MODULES) hazards system
 TB_SRC    := tb/tb_pkg.vhd $(addprefix tb/tb_,$(addsuffix .vhd,$(TESTS)))
 
-.PHONY: all analyze spec clean $(TESTS)
+.PHONY: all analyze spec clean distclean $(TESTS)
 
 all: analyze
 	@pass=0; fail=0; failed=""; \
 	for t in $(TESTS); do \
-	  if $(MAKE) --no-print-directory run-$$t; then pass=$$((pass+1)); \
-	  else fail=$$((fail+1)); failed="$$failed $$t"; fi; \
+		if $(MAKE) --no-print-directory run-$$t; then \
+			pass=$$((pass+1)); \
+		else \
+			fail=$$((fail+1)); \
+			failed="$$failed $$t"; \
+		fi; \
 	done; \
-	echo "=================================================="; \
-	echo " testbenches passed: $$pass   failed: $$fail $$failed"; \
-	echo "=================================================="; \
+	echo ""; \
+	echo " testbenches passed: $$pass   failed: $$fail$$failed"; \
+	echo ""; \
 	test $$fail -eq 0
 
 analyze: $(WORK)/.analyzed
@@ -61,15 +67,17 @@ run-%: analyze
 run-system: analyze
 	$(GHDL) -e $(GFLAGS) tb_system
 	$(GHDL) -r $(GFLAGS) tb_system $(RUNFLAGS) -gMEM_FILE=$(MEM) \
-	  -gGOLDEN_FILE=$(GOLDEN) -gIN_VALUE=$(IN) -gIRQ_CYCLE=$(IRQ)
+		-gGOLDEN_FILE=$(GOLDEN) -gIN_VALUE=$(IN) -gIRQ_CYCLE=$(IRQ)
 
 $(TESTS): %: run-%
 
 spec:
 	cd doc && pdflatex -interaction=nonstopmode spec.tex >/dev/null && \
-	          pdflatex -interaction=nonstopmode spec.tex >/dev/null
+		pdflatex -interaction=nonstopmode spec.tex >/dev/null
 	@echo "doc/spec.pdf rebuilt"
 
 clean:
-	rm -rf $(WORK) e~*.o *.o *.cf tb_* work
-	rm -f doc/*.aux doc/*.log doc/*.out doc/*.toc
+	python -c "import glob, os, shutil; [shutil.rmtree(p, ignore_errors=True) for p in ('$(WORK)', 'work', 'scripts/work', 'scripts/__pycache__', '-p')]; [shutil.rmtree(f, ignore_errors=True) if os.path.isdir(f) else os.remove(f) for pat in ('e~*.o', '*.o', '*.cf', 'tb_*', 'doc/*.aux', 'doc/*.log', 'doc/*.out', 'doc/*.toc', 'transcript', 'scripts/transcript', 'vsim.wlf') for f in glob.glob(pat)]"
+
+distclean: clean
+	python -c "import shutil; shutil.rmtree('rtl/project_1', ignore_errors=True)"

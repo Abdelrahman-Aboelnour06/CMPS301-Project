@@ -26,7 +26,7 @@ begin
   begin
     if rising_edge(clk) then
       if reset = '1' then
-        reg <= D_X1_NOP;
+        reg.control <= CTRL_NOP;
       elsif flush = '1' or en = '1' then
         reg <= d_in;
         if flush = '1' then

@@ -427,7 +427,6 @@ begin
   x1x2_in <= (
     control               => d_x1_reg.control,
     result_1              => execute1_result_1,
-    operand_a             => forwarded_operand_a,
     operand_b             => forwarded_operand_b,
     immediate             => d_x1_reg.immediate,
     write_addr_1          => d_x1_reg.write_addr_1,
@@ -445,7 +444,7 @@ begin
   -- =========================================================================
   -- 4. EXECUTE-2 STAGE (X2) & X2/M PIPELINE REGISTER
   -- =========================================================================
-  execute2_base_addr <= x1_x2_reg.operand_b when x1_x2_reg.control.base_address_is_operand_b = '1' else x1_x2_reg.operand_a;
+  execute2_base_addr <= x1_x2_reg.operand_b when x1_x2_reg.control.base_address_is_operand_b = '1' else x1_x2_reg.result_1;
 
   u_addr_adder : entity work.addr_adder
     port map (
@@ -463,7 +462,7 @@ begin
       addr  => stack_pointer_mem_addr);
 
   execute2_mem_addr <= stack_pointer_mem_addr   when x1_x2_reg.control.memory_address_from_sp = '1' else execute2_effective_addr;
-  execute2_store_data <= x1_x2_reg.link_address when x1_x2_reg.control.store_link_address = '1'     else x1_x2_reg.operand_a;
+  execute2_store_data <= x1_x2_reg.link_address when x1_x2_reg.control.store_link_address = '1'     else x1_x2_reg.result_1;
 
   u_branch : entity work.branch_check
     port map (

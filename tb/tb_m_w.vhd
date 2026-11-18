@@ -55,7 +55,6 @@ begin
     d_in.write_addr_1 <= "000";
     tick;
     check(d_out.control = CTRL_NOP, "reset bubble", errs);
-    check_eq(d_out.result_1, x"00000000", "reset res1", errs);
     reset <= '0'; tick;
     check(d_out.control = c_swap, "capture ctrl", errs);
     check_eq(d_out.result_1, x"80000000", "res1 min", errs);

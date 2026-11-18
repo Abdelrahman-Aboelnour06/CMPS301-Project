@@ -1,9 +1,9 @@
 -------------------------------------------------------------------------------
 -- branch_check.vhd -- X2 resolution of JZ / JN / JC.
 -- Every Jcc is statically predicted TAKEN and redirected in D. Here the
--- condition is evaluated against the CCR; if the branch is NOT taken the
--- prediction was wrong: mispredict = '1' flushes F/D/X1 and reloads PC from
--- the branch's saved PC+1. Flags are never modified.
+-- condition is evaluated against the CCR:
+--   * if NOT taken: mispredict = '1' flushes F/D/X1 and reloads saved PC+1.
+--   * if TAKEN    : clr_mask clears the tested flag (spec semantics).
 --   cond "01" -> Z, "10" -> N, "11" -> C, "00" -> never (not a Jcc).
 -------------------------------------------------------------------------------
 library ieee;
@@ -16,7 +16,8 @@ entity branch_check is
     cond       : in  std_logic_vector(1 downto 0);
     ccr        : in  std_logic_vector(3 downto 0);
     taken      : out std_logic;
-    mispredict : out std_logic
+    mispredict : out std_logic;
+    clr_mask   : out std_logic_vector(2 downto 0)
   );
 end entity branch_check;
 
@@ -30,4 +31,9 @@ begin
 
   taken      <= is_jcc and t;
   mispredict <= is_jcc and not t;
+
+  clr_mask <= "001" when (is_jcc = '1' and t = '1' and cond = COND_Z) else
+              "010" when (is_jcc = '1' and t = '1' and cond = COND_N) else
+              "100" when (is_jcc = '1' and t = '1' and cond = COND_C) else
+              "000";
 end architecture rtl;

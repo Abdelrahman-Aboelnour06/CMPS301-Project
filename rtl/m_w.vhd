@@ -1,6 +1,6 @@
 -------------------------------------------------------------------------------
 -- m_w.vhd -- M/W pipeline register.
--- Note: res1_in is already the final result (RAM data for loads).
+-- Note: res1 in d_in is already the final result (RAM data for loads).
 -- flush loads CTRL_NOP and has priority over en.
 -------------------------------------------------------------------------------
 library ieee;
@@ -9,56 +9,31 @@ use work.cpu_pkg.all;
 
 entity m_w is
   port (
-    clk      : in  std_logic;
-    reset    : in  std_logic;
-    en       : in  std_logic;
-    flush    : in  std_logic;
-    ctrl_in  : in  ctrl_t;
-    res1_in  : in  word_t;
-    res2_in  : in  word_t;
-    wa1_in   : in  raddr_t;
-    wa2_in   : in  raddr_t;
-    ctrl_out : out ctrl_t;
-    res1_out : out word_t;
-    res2_out : out word_t;
-    wa1_out  : out raddr_t;
-    wa2_out  : out raddr_t
+    clk   : in  std_logic;
+    reset : in  std_logic;
+    en    : in  std_logic;
+    flush : in  std_logic;
+    d_in  : in  m_w_t;
+    d_out : out m_w_t
   );
 end entity m_w;
 
 architecture rtl of m_w is
-  signal ctrl_r : ctrl_t  := CTRL_NOP;
-  signal res1_r : word_t  := (others => '0');
-  signal res2_r : word_t  := (others => '0');
-  signal wa1_r  : raddr_t := (others => '0');
-  signal wa2_r  : raddr_t := (others => '0');
+  signal reg : m_w_t := M_W_NOP;
 begin
   process (clk)
   begin
     if rising_edge(clk) then
       if reset = '1' then
-        ctrl_r <= CTRL_NOP;
-        res1_r <= (others => '0');
-        res2_r <= (others => '0');
-        wa1_r  <= (others => '0');
-        wa2_r  <= (others => '0');
+        reg <= M_W_NOP;
       elsif flush = '1' or en = '1' then
+        reg <= d_in;
         if flush = '1' then
-          ctrl_r <= CTRL_NOP;
-        else
-          ctrl_r <= ctrl_in;
+          reg.ctrl <= CTRL_NOP;
         end if;
-        res1_r <= res1_in;
-        res2_r <= res2_in;
-        wa1_r  <= wa1_in;
-        wa2_r  <= wa2_in;
       end if;
     end if;
   end process;
 
-  ctrl_out <= ctrl_r;
-  res1_out <= res1_r;
-  res2_out <= res2_r;
-  wa1_out  <= wa1_r;
-  wa2_out  <= wa2_r;
+  d_out <= reg;
 end architecture rtl;

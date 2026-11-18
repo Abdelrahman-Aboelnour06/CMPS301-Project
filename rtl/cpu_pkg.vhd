@@ -162,6 +162,98 @@ package cpu_pkg is
     jump_condition                => "00");
 
   -- -------------------------------------------------------------------------
+  -- Inter-stage pipeline register bundles
+  -- -------------------------------------------------------------------------
+  type if_d_t is record
+    valid  : std_logic;
+    is_vec : std_logic;
+    pc     : word_t;
+    pc1    : word_t;
+  end record;
+
+  constant IF_D_NOP : if_d_t := (
+    valid  => '0',
+    is_vec => '0',
+    pc     => WORD_ZERO,
+    pc1    => WORD_ZERO);
+
+  type d_x1_t is record
+    ctrl : ctrl_t;
+    a    : word_t;
+    b    : word_t;
+    ra1  : raddr_t;
+    ra2  : raddr_t;
+    wa1  : raddr_t;
+    wa2  : raddr_t;
+    imm  : word_t;
+    link : word_t;
+  end record;
+
+  constant D_X1_NOP : d_x1_t := (
+    ctrl => CTRL_NOP,
+    a    => WORD_ZERO,
+    b    => WORD_ZERO,
+    ra1  => "000",
+    ra2  => "000",
+    wa1  => "000",
+    wa2  => "000",
+    imm  => WORD_ZERO,
+    link => WORD_ZERO);
+
+  type x1_x2_t is record
+    ctrl : ctrl_t;
+    res1 : word_t;
+    res2 : word_t;
+    a    : word_t;
+    b    : word_t;
+    imm  : word_t;
+    wa1  : raddr_t;
+    wa2  : raddr_t;
+    link : word_t;
+  end record;
+
+  constant X1_X2_NOP : x1_x2_t := (
+    ctrl => CTRL_NOP,
+    res1 => WORD_ZERO,
+    res2 => WORD_ZERO,
+    a    => WORD_ZERO,
+    b    => WORD_ZERO,
+    imm  => WORD_ZERO,
+    wa1  => "000",
+    wa2  => "000",
+    link => WORD_ZERO);
+
+  type x2_m_t is record
+    ctrl : ctrl_t;
+    res1 : word_t;
+    res2 : word_t;
+    wa1  : raddr_t;
+    wa2  : raddr_t;
+  end record;
+
+  constant X2_M_NOP : x2_m_t := (
+    ctrl => CTRL_NOP,
+    res1 => WORD_ZERO,
+    res2 => WORD_ZERO,
+    wa1  => "000",
+    wa2  => "000");
+
+  type m_w_t is record
+    ctrl : ctrl_t;
+    res1 : word_t;
+    res2 : word_t;
+    wa1  : raddr_t;
+    wa2  : raddr_t;
+  end record;
+
+  constant M_W_NOP : m_w_t := (
+    ctrl => CTRL_NOP,
+    res1 => WORD_ZERO,
+    res2 => WORD_ZERO,
+    wa1  => "000",
+    wa2  => "000");
+
+  -- -------------------------------------------------------------------------
   -- Helpers
   -- -------------------------------------------------------------------------
   function sext16(v : std_logic_vector(15 downto 0)) return word_t;

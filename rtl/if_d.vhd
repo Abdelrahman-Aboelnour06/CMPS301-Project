@@ -14,51 +14,33 @@ use work.cpu_pkg.all;
 
 entity if_d is
   port (
-    clk        : in  std_logic;
-    reset      : in  std_logic;
-    en         : in  std_logic;   -- '0' = hold (load-use stall)
-    flush      : in  std_logic;   -- '1' = capture a bubble
-    valid_in   : in  std_logic;
-    is_vec_in  : in  std_logic;
-    pc_in      : in  word_t;
-    pc1_in     : in  word_t;
-    valid_out  : out std_logic;
-    is_vec_out : out std_logic;
-    pc_out     : out word_t;
-    pc1_out    : out word_t
+    clk   : in  std_logic;
+    reset : in  std_logic;
+    en    : in  std_logic;              -- '0' = hold (load-use stall)
+    flush : in  std_logic;              -- '1' = capture a bubble
+    d_in  : in  if_d_t;
+    d_out : out if_d_t
   );
 end entity if_d;
 
 architecture rtl of if_d is
-  signal valid_r  : std_logic := '0';
-  signal is_vec_r : std_logic := '0';
-  signal pc_r     : word_t    := (others => '0');
-  signal pc1_r    : word_t    := (others => '0');
+  signal reg : if_d_t := IF_D_NOP;
 begin
   process (clk)
   begin
     if rising_edge(clk) then
       if reset = '1' then
-        valid_r  <= '0';
-        is_vec_r <= '0';
-        pc_r     <= (others => '0');
-        pc1_r    <= (others => '0');
+        reg <= IF_D_NOP;
       elsif flush = '1' then
-        valid_r  <= '0';
-        is_vec_r <= '0';
-        pc_r     <= pc_in;
-        pc1_r    <= pc1_in;
+        reg.valid  <= '0';
+        reg.is_vec <= '0';
+        reg.pc     <= d_in.pc;
+        reg.pc1    <= d_in.pc1;
       elsif en = '1' then
-        valid_r  <= valid_in;
-        is_vec_r <= is_vec_in;
-        pc_r     <= pc_in;
-        pc1_r    <= pc1_in;
+        reg <= d_in;
       end if;
     end if;
   end process;
 
-  valid_out  <= valid_r;
-  is_vec_out <= is_vec_r;
-  pc_out     <= pc_r;
-  pc1_out    <= pc1_r;
+  d_out <= reg;
 end architecture rtl;

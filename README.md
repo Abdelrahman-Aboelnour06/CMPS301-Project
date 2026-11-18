@@ -108,8 +108,7 @@ Operand fields used by each instruction:
 ```sh
 vsim -c -do "do scripts/questa_compile.do; quit"                 # RTL as -93, TBs as -2008
 vsim -do "do scripts/questa_compile.do; do scripts/questa_run.do tb_top"
-vsim -c -"gMEM_FILE=programs/demo.mem" "-gGOLDEN_FILE=programs/demo.golden" 
-     work.tb_system -do "run -all; quit"
+vsim -c "-gMEM_FILE=programs/demo.mem" "-gGOLDEN_FILE=programs/demo.golden" work.tb_system -do "run -all; quit"
 ```
 
 `questa_run.do` adds a useful wave set for `tb_top`/`tb_system`: PC, SP, CCR,

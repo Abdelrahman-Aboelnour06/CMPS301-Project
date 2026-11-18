@@ -14,23 +14,15 @@ end entity tb_d_x1;
 architecture sim of tb_d_x1 is
   signal clk, reset : std_logic := '1';
   signal en, flush  : std_logic := '0';
-  signal ctrl_in, ctrl_out : ctrl_t := CTRL_NOP;
-  signal a_in, b_in, imm_in, link_in     : word_t := (others => '0');
-  signal a_out, b_out, imm_out, link_out : word_t;
-  signal ra1_in, ra2_in, wa1_in, wa2_in     : raddr_t := "000";
-  signal ra1_out, ra2_out, wa1_out, wa2_out : raddr_t;
-  signal c_add : ctrl_t;
+  signal d_in       : d_x1_t := D_X1_NOP;
+  signal d_out      : d_x1_t;
+  signal c_add      : ctrl_t;
 begin
   clk <= not clk after 5 ns;
 
   dut : entity work.d_x1
     port map (clk => clk, reset => reset, en => en, flush => flush,
-              ctrl_in => ctrl_in, a_in => a_in, b_in => b_in,
-              ra1_in => ra1_in, ra2_in => ra2_in, wa1_in => wa1_in,
-              wa2_in => wa2_in, imm_in => imm_in, link_in => link_in,
-              ctrl_out => ctrl_out, a_out => a_out, b_out => b_out,
-              ra1_out => ra1_out, ra2_out => ra2_out, wa1_out => wa1_out,
-              wa2_out => wa2_out, imm_out => imm_out, link_out => link_out);
+              d_in => d_in, d_out => d_out);
 
   -- an ADD control word
   process
@@ -58,45 +50,45 @@ begin
   begin
     en <= '1';
     wait for 1 ns;
-    ctrl_in <= c_add; a_in <= x"11111111"; b_in <= x"22222222";
-    ra1_in <= "001"; ra2_in <= "010"; wa1_in <= "011"; wa2_in <= "100";
-    imm_in <= x"FFFF8000"; link_in <= x"00000ABC";
+    d_in.ctrl <= c_add; d_in.a <= x"11111111"; d_in.b <= x"22222222";
+    d_in.ra1 <= "001"; d_in.ra2 <= "010"; d_in.wa1 <= "011"; d_in.wa2 <= "100";
+    d_in.imm <= x"FFFF8000"; d_in.link <= x"00000ABC";
     tick;
-    check(ctrl_out = CTRL_NOP, "reset -> bubble", errs);
-    check_eq(a_out, x"00000000", "reset a", errs);
+    check(d_out.ctrl = CTRL_NOP, "reset -> bubble", errs);
+    check_eq(d_out.a, x"00000000", "reset a", errs);
 
     reset <= '0'; tick;
-    check(ctrl_out = c_add, "capture ctrl", errs);
-    check_eq(a_out, x"11111111", "capture a", errs);
-    check_eq(b_out, x"22222222", "capture b", errs);
-    check_eq(ra1_out, "001", "capture ra1", errs);
-    check_eq(ra2_out, "010", "capture ra2", errs);
-    check_eq(wa1_out, "011", "capture wa1", errs);
-    check_eq(wa2_out, "100", "capture wa2", errs);
-    check_eq(imm_out, x"FFFF8000", "capture imm (min)", errs);
-    check_eq(link_out, x"00000ABC", "capture link", errs);
+    check(d_out.ctrl = c_add, "capture ctrl", errs);
+    check_eq(d_out.a, x"11111111", "capture a", errs);
+    check_eq(d_out.b, x"22222222", "capture b", errs);
+    check_eq(d_out.ra1, "001", "capture ra1", errs);
+    check_eq(d_out.ra2, "010", "capture ra2", errs);
+    check_eq(d_out.wa1, "011", "capture wa1", errs);
+    check_eq(d_out.wa2, "100", "capture wa2", errs);
+    check_eq(d_out.imm, x"FFFF8000", "capture imm (min)", errs);
+    check_eq(d_out.link, x"00000ABC", "capture link", errs);
 
     -- hold
-    en <= '0'; a_in <= x"FFFFFFFF"; ctrl_in <= CTRL_NOP; tick;
-    check(ctrl_out = c_add, "hold ctrl", errs);
-    check_eq(a_out, x"11111111", "hold a", errs);
+    en <= '0'; d_in.a <= x"FFFFFFFF"; d_in.ctrl <= CTRL_NOP; tick;
+    check(d_out.ctrl = c_add, "hold ctrl", errs);
+    check_eq(d_out.a, x"11111111", "hold a", errs);
 
     -- flush while en = 0: bubble inserted anyway
     flush <= '1'; tick;
-    check(ctrl_out = CTRL_NOP, "flush beats hold", errs);
-    check_eq(a_out, x"FFFFFFFF", "data captured on flush", errs);
+    check(d_out.ctrl = CTRL_NOP, "flush beats hold", errs);
+    check_eq(d_out.a, x"FFFFFFFF", "data captured on flush", errs);
 
     -- flush with en = 1 and a valid control word
-    en <= '1'; ctrl_in <= c_add; tick;
-    check(ctrl_out = CTRL_NOP, "flush -> bubble", errs);
-    check_sl(ctrl_out.write_port_1_enable, '0', "bubble does not write", errs);
+    en <= '1'; d_in.ctrl <= c_add; tick;
+    check(d_out.ctrl = CTRL_NOP, "flush -> bubble", errs);
+    check_sl(d_out.ctrl.write_port_1_enable, '0', "bubble does not write", errs);
 
     flush <= '0'; tick;
-    check(ctrl_out = c_add, "normal again", errs);
-    check_eq(a_out, x"FFFFFFFF", "max a", errs);
+    check(d_out.ctrl = c_add, "normal again", errs);
+    check_eq(d_out.a, x"FFFFFFFF", "max a", errs);
 
     reset <= '1'; tick;
-    check(ctrl_out = CTRL_NOP, "reset again", errs);
+    check(d_out.ctrl = CTRL_NOP, "reset again", errs);
     finish_tb("tb_d_x1", errs);
     wait;
   end process;

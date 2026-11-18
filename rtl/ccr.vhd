@@ -18,6 +18,7 @@ entity ccr is
     c_in       : in  std_logic;
     zn_we      : in  std_logic;
     c_we       : in  std_logic;
+    clr_mask   : in  std_logic_vector(2 downto 0) := "000"; -- NEW: bit0=Z, bit1=N, bit2=C
     save       : in  std_logic;
     restore    : in  std_logic;
     ccr_out    : out std_logic_vector(3 downto 0);
@@ -42,6 +43,10 @@ begin
         if restore = '1' then
           ccr_r <= shadow_r;
         else
+          if clr_mask(CCR_Z) = '1' then ccr_r(CCR_Z) <= '0'; end if;
+          if clr_mask(CCR_N) = '1' then ccr_r(CCR_N) <= '0'; end if;
+          if clr_mask(CCR_C) = '1' then ccr_r(CCR_C) <= '0'; end if;
+
           if zn_we = '1' then
             ccr_r(CCR_Z) <= z_in;
             ccr_r(CCR_N) <= n_in;

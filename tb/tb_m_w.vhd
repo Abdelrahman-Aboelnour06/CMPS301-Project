@@ -35,8 +35,14 @@ begin
     variable c : ctrl_t;
   begin
     c := CTRL_NOP;
-    c.valid := '1'; c.use_a := '1'; c.use_b := '1'; c.ra1_dst := '1';
-    c.ra2_src1 := '1'; c.we1 := '1'; c.we2 := '1'; c.swap := '1';
+    c.is_real_instruction := '1';
+    c.reads_operand_a := '1';
+    c.reads_operand_b := '1';
+    c.read_port_1_uses_rdst := '1';
+    c.read_port_2_uses_rsrc1 := '1';
+    c.write_port_1_enable := '1';
+    c.write_port_2_enable := '1';
+    c.swap_write_addresses := '1';
     c_swap <= c;
     wait;
   end process;

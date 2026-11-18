@@ -37,7 +37,11 @@ begin
     variable c : ctrl_t;
   begin
     c := CTRL_NOP;
-    c.valid := '1'; c.use_a := '1'; c.use_b := '1'; c.mem_wr := '1'; c.base_b := '1';
+    c.is_real_instruction := '1';
+    c.reads_operand_a := '1';
+    c.reads_operand_b := '1';
+    c.memory_write := '1';
+    c.base_address_is_operand_b := '1';
     c_st <= c;
     wait;
   end process;
@@ -73,7 +77,7 @@ begin
 
     flush <= '1'; tick;
     check(ctrl_out = CTRL_NOP, "flush beats hold", errs);
-    check_sl(ctrl_out.mem_wr, '0', "flushed store does not write", errs);
+    check_sl(ctrl_out.memory_write, '0', "flushed store does not write", errs);
 
     flush <= '0'; en <= '1'; tick;
     check(ctrl_out = c_st, "resume", errs);

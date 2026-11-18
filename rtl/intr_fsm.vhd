@@ -47,21 +47,28 @@ architecture rtl of intr_fsm is
   signal pending_r : std_logic := '0';
   signal in_isr_r  : std_logic := '0';
   signal calm_i    : std_logic;
-  signal jcc_busy  : std_logic;
+  signal inject_i  : std_logic;
   signal ret_busy  : std_logic;
 begin
 
-  jcc_busy <= d_ctrl_raw.is_jcc or x1_ctrl.is_jcc or x2_ctrl.is_jcc;
-  ret_busy <= d_ctrl_raw.is_ret or d_ctrl_raw.is_rti or
-              x1_ctrl.is_ret    or x1_ctrl.is_rti    or
-              x2_ctrl.is_ret    or x2_ctrl.is_rti    or
-              m_ctrl.is_ret     or m_ctrl.is_rti     or
-              w_ctrl.is_ret     or w_ctrl.is_rti;
+  ret_busy <= d_ctrl_raw.is_return or d_ctrl_raw.is_return_from_interrupt or
+              x1_ctrl.is_return    or x1_ctrl.is_return_from_interrupt    or
+              x2_ctrl.is_return    or x2_ctrl.is_return_from_interrupt    or
+              m_ctrl.is_return     or m_ctrl.is_return_from_interrupt     or
+              w_ctrl.is_return     or w_ctrl.is_return_from_interrupt;
 
-  calm_i <= d_real and not jcc_busy and not ret_busy and
+  -- BUG-001 fix: a Jcc in D/X1/X2 no longer blocks injection.
+  --   Jcc in X1 -> D always holds a bubble (the Jcc's D redirect flushed IF/D).
+  --   Jcc in X2 -> 'not mispredict' already proves D is on the correct path.
+  --   Jcc in D  -> replaced by the micro-op; it re-executes after RTI with
+  --                the restored CCR.
+  -- With the old Jcc gate, INTR.IN starved forever in any loop of <= 2
+  -- instructions closed by a Jcc (e.g. L: AND R2,R1,R1 ; JZ L).
+  calm_i <= d_real and not ret_busy and
             not mispredict and not boot_busy;
 
-  inject <= pending_r and not in_isr_r and calm_i;
+  inject_i <= pending_r and not in_isr_r and calm_i;
+  inject   <= inject_i;
   calm   <= calm_i;
 
   process (clk)
@@ -74,15 +81,22 @@ begin
       else
         prev_r <= intr_in;
 
-        if x2_ctrl.is_hw = '1' then
-          pending_r <= '0';
-        elsif intr_in = '1' and prev_r = '0' and in_isr_r = '0' then
+        -- BUG-002 fix: every rising edge is latched, including edges that
+        -- arrive while in_ISR = 1. The request waits (no nesting) and is
+        -- injected after RTI clears in_ISR. The latch is cleared when the
+        -- micro-op is injected: once injected it cannot be flushed (inject
+        -- needs no mispredict, the micro-op reads no register so it cannot
+        -- stall, and a Jcc in X1 implies a bubble in D), so a new edge in
+        -- the following cycles is a new request, not merged with this one.
+        if intr_in = '1' and prev_r = '0' then
           pending_r <= '1';
+        elsif inject_i = '1' then
+          pending_r <= '0';
         end if;
 
-        if x2_ctrl.is_hw = '1' or x2_ctrl.is_int = '1' then
+        if x2_ctrl.is_hardware_interrupt = '1' or x2_ctrl.is_software_interrupt = '1' then
           in_isr_r <= '1';
-        elsif w_ctrl.is_rti = '1' then
+        elsif w_ctrl.is_return_from_interrupt = '1' then
           in_isr_r <= '0';
         end if;
       end if;

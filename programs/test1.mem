@@ -1,0 +1,84 @@
+# test1.mem -- CMPS 301 system test: flags, Jcc predict/mispredict, shifts, stack,
+# load-use, STD/LDD, nested CALL/RET, INT 0/INT 1 with CCR restore.
+# Hardware-IRQ ISR is a bare RTI, so the golden holds for any IRQ_CYCLE.
+@000
+00000010    # 000: .word main
+00000100    # 001: .word isr_irq
+00000120    # 002: .word isr0
+00000140    # 003: .word isr1
+@010
+8B800000    # 010: LDM R7, 0   ; R7 = poison flag, must stay 0
+8880FFFF    # 011: LDM R1, -1   ; R1 = 0xFFFFFFFF
+61100001    # 012: IADD R2, R1, 1   ; R2 = 0, Z=1 C=1
+CC000015    # 013: JC t1   ; taken (C)
+8B800BAD    # 014: LDM R7, 0xBAD
+C4000017    # 015: JZ t2   ; taken (Z)
+8B800BAD    # 016: LDM R7, 0xBAD
+89800005    # 017: LDM R3, 5
+8A000007    # 018: LDM R4, 7
+4EB80000    # 019: SUB R5, R3, R4   ; -2, N=1, borrow C=1
+C800001C    # 01A: JN t3   ; taken
+8B800BAD    # 01B: LDM R7, 0xBAD
+8B000F0F    # 01C: LDM R6, 0x0F0F
+880000FF    # 01D: LDM R0, 0xFF
+53600000    # 01E: AND R6, R6, R0   ; 0x0F, Z=0 N=0, C kept = 1
+C4000022    # 01F: JZ bad1   ; not taken (mispredict)
+C8000022    # 020: JN bad1   ; not taken (mispredict)
+CC000023    # 021: JC t4   ; taken, C preserved by AND
+8B800BAD    # 022: LDM R7, 0xBAD
+10500000    # 023: OUT R5   ; OUT = 0xFFFFFFFE
+88000001    # 024: LDM R0, 1
+5C00001F    # 025: SHL R0, 31   ; 0x80000000, N=1
+5800001F    # 026: SHR R0, 31   ; 1
+58000001    # 027: SHR R0, 1   ; 0, C=1, Z=1
+5C000000    # 028: SHL R0, 0   ; shift by 0: Z,N only, C kept
+CC00002B    # 029: JC t5
+8B800BAD    # 02A: LDM R7, 0xBAD
+08800000    # 02B: INC R1   ; 0xFFFFFFFF+1 = 0, Z=1 C=1
+18000000    # 02C: SETC
+04800000    # 02D: NOT R1   ; 0xFFFFFFFF, N=1 Z=0
+41100000    # 02E: MOV R2, R1   ; R2 = 0xFFFFFFFF
+80300000    # 02F: PUSH R3   ; push 5
+80400000    # 030: PUSH R4   ; push 7
+84800000    # 031: POP R1   ; R1 = 7
+85000000    # 032: POP R2   ; R2 = 5
+48940000    # 033: ADD R1, R1, R2   ; load-use dist 1, R1 = 12
+89800300    # 034: LDM R3, 0x300
+90160002    # 035: STD R1, 2(R3)   ; M[0x302] = 12
+8EB00002    # 036: LDD R5, 2(R3)   ; R5 = 12
+4ADA0000    # 037: ADD R5, R5, R5   ; load-use dist 1, R5 = 24
+90560003    # 038: STD R5, 3(R3)   ; load->store data, M[0x303] = 24
+8E300003    # 039: LDD R4, 3(R3)
+00000000    # 03A: NOP
+6240FFFC    # 03B: IADD R4, R4, -4   ; load-use dist 2, R4 = 20
+46500000    # 03C: SWAP R4, R5   ; R4 = 24, R5 = 20
+544A0000    # 03D: CMP R4, R5   ; 24-20 > 0: Z=0 N=0 C=0
+D0000080    # 03E: CALL f1   ; nested call
+89800003    # 03F: LDM R3, 3
+4DB60000    # 040: SUB R3, R3, R3   ; Z=1 N=0 C=0
+DC000000    # 041: INT 0   ; ISR0 clobbers flags, RTI restores Z=1
+C4000044    # 042: JZ t6   ; Z restored -> taken
+8B800BAD    # 043: LDM R7, 0xBAD
+DC010000    # 044: INT 1   ; ISR1 sets C, RTI restores
+CC000048    # 045: JC bad2   ; C restored to 0 -> not taken
+10600000    # 046: OUT R6
+1C000000    # 047: HLT
+8B800BAD    # 048: LDM R7, 0xBAD
+1C000000    # 049: HLT
+@080
+63600001    # 080: IADD R6, R6, 1
+D0000084    # 081: CALL f2
+6360000A    # 082: IADD R6, R6, 10
+D4000000    # 083: RET
+63600064    # 084: IADD R6, R6, 100
+D4000000    # 085: RET
+@100
+D8000000    # 100: RTI
+@120
+18000000    # 120: SETC
+88000055    # 121: LDM R0, 0x55
+D8000000    # 122: RTI
+@140
+18000000    # 140: SETC
+54000000    # 141: CMP R0, R0
+D8000000    # 142: RTI

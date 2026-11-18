@@ -1,0 +1,17 @@
+# isr_pulse.mem -- INTR.IN pulse while the INT 0 ISR runs (BUG-002). Run with IRQ=14.
+@000
+00000010    # 000: vector
+00000040    # 001: vector
+00000060    # 002: vector
+@010
+88800000    # 010: LDM
+DC000000    # 011: INT
+51120000    # 012: AND
+@014
+C4000012    # 014: JZ
+1C000000    # 015: HLT
+@040
+88800001    # 040: LDM
+D8000000    # 041: RTI
+@066
+D8000000    # 066: RTI

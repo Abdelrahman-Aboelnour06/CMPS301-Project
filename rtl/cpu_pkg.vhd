@@ -97,69 +97,69 @@ package cpu_pkg is
   -- A bubble is CTRL_NOP (all zeros).
   -- -------------------------------------------------------------------------
   type ctrl_t is record
-    valid    : std_logic;                     -- a real instruction / micro-op
-    alu_op   : aluop_t;
-    b_imm    : std_logic;                     -- ALU B input = sign-ext imm
-    use_a    : std_logic;                     -- reads register via port 1
-    use_b    : std_logic;                     -- reads register via port 2
-    ra1_dst  : std_logic;                     -- port-1 address = Rdst
-    ra2_src1 : std_logic;                     -- port-2 address = Rsrc1
-    we1      : std_logic;                     -- RF write port 1
-    we2      : std_logic;                     -- RF write port 2
-    swap     : std_logic;                     -- RF swap of write addresses
-    zn_we    : std_logic;                     -- update Z and N
-    c_we     : std_logic;                     -- update C
-    in_sel   : std_logic;                     -- result = IN.PORT
-    out_we   : std_logic;                     -- OUT.PORT <- result in W
-    mem_rd   : std_logic;                     -- RAM port-B read
-    mem_wr   : std_logic;                     -- RAM port-B write
-    addr_sp  : std_logic;                     -- RAM address from SP unit
-    sp_dec   : std_logic;                     -- push: SP <- SP-1, addr=SP-1
-    sp_inc   : std_logic;                     -- pop : addr=SP, SP <- SP+1
-    st_link  : std_logic;                     -- store data = link (PC+1/PC)
-    base_b   : std_logic;                     -- LDD/STD base = operand B
-    is_jmp   : std_logic;
-    is_call  : std_logic;
-    is_jcc   : std_logic;
-    is_int   : std_logic;                     -- software INT
-    is_hw    : std_logic;                     -- injected hardware-IRQ micro-op
-    is_ret   : std_logic;
-    is_rti   : std_logic;
-    is_hlt   : std_logic;
-    cond     : std_logic_vector(1 downto 0);  -- Jcc condition
+    is_real_instruction           : std_logic;                            -- a real instruction / micro-op
+    alu_operation                 : aluop_t;
+    alu_b_uses_immediate          : std_logic;                            -- ALU B input = sign-ext imm
+    reads_operand_a               : std_logic;                            -- reads register via port 1
+    reads_operand_b               : std_logic;                            -- reads register via port 2
+    read_port_1_uses_rdst         : std_logic;                            -- port-1 address = Rdst
+    read_port_2_uses_rsrc1        : std_logic;                            -- port-2 address = Rsrc1
+    write_port_1_enable           : std_logic;                            -- RF write port 1
+    write_port_2_enable           : std_logic;                            -- RF write port 2
+    swap_write_addresses          : std_logic;                            -- RF swap of write addresses
+    update_zero_negative_flags    : std_logic;                            -- update Z and N
+    update_carry_flag             : std_logic;                            -- update C
+    result_from_in_port           : std_logic;                            -- result = IN.PORT
+    write_out_port                : std_logic;                            -- OUT.PORT <- result in W
+    memory_read                   : std_logic;                            -- RAM port-B read
+    memory_write                  : std_logic;                            -- RAM port-B write
+    memory_address_from_sp        : std_logic;                            -- RAM address from SP unit
+    stack_pointer_decrement       : std_logic;                            -- push: SP <- SP-1, addr=SP-1
+    stack_pointer_increment       : std_logic;                            -- pop : addr=SP, SP <- SP+1
+    store_link_address            : std_logic;                            -- store data = link (PC+1/PC)
+    base_address_is_operand_b     : std_logic;                            -- LDD/STD base = operand B
+    is_jump                       : std_logic;
+    is_call                       : std_logic;
+    is_conditional_jump           : std_logic;
+    is_software_interrupt         : std_logic;                            -- software INT
+    is_hardware_interrupt         : std_logic;                            -- injected hardware-IRQ micro-op
+    is_return                     : std_logic;
+    is_return_from_interrupt      : std_logic;
+    is_halt                       : std_logic;
+    jump_condition                : std_logic_vector(1 downto 0);         -- Jcc condition
   end record;
 
   constant CTRL_NOP : ctrl_t := (
-    valid    => '0',
-    alu_op   => ALU_PASSA,
-    b_imm    => '0',
-    use_a    => '0',
-    use_b    => '0',
-    ra1_dst  => '0',
-    ra2_src1 => '0',
-    we1      => '0',
-    we2      => '0',
-    swap     => '0',
-    zn_we    => '0',
-    c_we     => '0',
-    in_sel   => '0',
-    out_we   => '0',
-    mem_rd   => '0',
-    mem_wr   => '0',
-    addr_sp  => '0',
-    sp_dec   => '0',
-    sp_inc   => '0',
-    st_link  => '0',
-    base_b   => '0',
-    is_jmp   => '0',
-    is_call  => '0',
-    is_jcc   => '0',
-    is_int   => '0',
-    is_hw    => '0',
-    is_ret   => '0',
-    is_rti   => '0',
-    is_hlt   => '0',
-    cond     => "00");
+    is_real_instruction           => '0',
+    alu_operation                 => ALU_PASSA,
+    alu_b_uses_immediate          => '0',
+    reads_operand_a               => '0',
+    reads_operand_b               => '0',
+    read_port_1_uses_rdst         => '0',
+    read_port_2_uses_rsrc1        => '0',
+    write_port_1_enable           => '0',
+    write_port_2_enable           => '0',
+    swap_write_addresses          => '0',
+    update_zero_negative_flags    => '0',
+    update_carry_flag             => '0',
+    result_from_in_port           => '0',
+    write_out_port                => '0',
+    memory_read                   => '0',
+    memory_write                  => '0',
+    memory_address_from_sp        => '0',
+    stack_pointer_decrement       => '0',
+    stack_pointer_increment       => '0',
+    store_link_address            => '0',
+    base_address_is_operand_b     => '0',
+    is_jump                       => '0',
+    is_call                       => '0',
+    is_conditional_jump           => '0',
+    is_software_interrupt         => '0',
+    is_hardware_interrupt         => '0',
+    is_return                     => '0',
+    is_return_from_interrupt      => '0',
+    is_halt                       => '0',
+    jump_condition                => "00");
 
   -- -------------------------------------------------------------------------
   -- Helpers

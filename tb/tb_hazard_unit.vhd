@@ -27,32 +27,46 @@ architecture sim of tb_hazard_unit is
   function c_use(a, b : std_logic) return ctrl_t is
     variable c : ctrl_t := CTRL_NOP;
   begin
-    c.valid := '1'; c.use_a := a; c.use_b := b; c.we1 := '1';
+    c.is_real_instruction := '1';
+    c.reads_operand_a := a;
+    c.reads_operand_b := b;
+    c.write_port_1_enable := '1';
     return c;
   end function;
   function c_ldd return ctrl_t is
     variable c : ctrl_t := CTRL_NOP;
   begin
-    c.valid := '1'; c.use_a := '1'; c.mem_rd := '1'; c.we1 := '1';
+    c.is_real_instruction := '1';
+    c.reads_operand_a := '1';
+    c.memory_read := '1';
+    c.write_port_1_enable := '1';
     return c;
   end function;
   function c_pop return ctrl_t is
     variable c : ctrl_t := CTRL_NOP;
   begin
-    c.valid := '1'; c.mem_rd := '1'; c.we1 := '1'; c.addr_sp := '1'; c.sp_inc := '1';
+    c.is_real_instruction := '1';
+    c.memory_read := '1';
+    c.write_port_1_enable := '1';
+    c.memory_address_from_sp := '1';
+    c.stack_pointer_increment := '1';
     return c;
   end function;
   function c_ret(rti : boolean) return ctrl_t is
     variable c : ctrl_t := CTRL_NOP;
   begin
-    c.valid := '1'; c.mem_rd := '1'; c.addr_sp := '1'; c.sp_inc := '1';
-    if rti then c.is_rti := '1'; else c.is_ret := '1'; end if;
+    c.is_real_instruction := '1';
+    c.memory_read := '1';
+    c.memory_address_from_sp := '1';
+    c.stack_pointer_increment := '1';
+    if rti then c.is_return_from_interrupt := '1'; else c.is_return := '1'; end if;
     return c;
   end function;
   function c_hlt return ctrl_t is
     variable c : ctrl_t := CTRL_NOP;
   begin
-    c.valid := '1'; c.is_hlt := '1';
+    c.is_real_instruction := '1';
+    c.is_halt := '1';
     return c;
   end function;
 begin

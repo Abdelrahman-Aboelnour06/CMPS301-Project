@@ -1,0 +1,14 @@
+# test1.golden -- expected final state of programs/test1.mem (tb_system)
+# Conditions: IN.PORT = 0000ABCD (unused), IRQ any (ISR is a bare RTI).
+R0  00000055
+R1  0000000C
+R2  00000005
+R3  00000000
+R4  00000018
+R5  00000014
+R6  0000007E
+R7  00000000
+SP  00000FFF
+CCR 1
+OUT 0000007E
+PC  00000048

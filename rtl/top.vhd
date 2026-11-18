@@ -92,6 +92,7 @@ architecture rtl of top is
   signal x2_sdata                  : word_t;
   signal taken, mispredict         : std_logic;
   signal ccr_save                  : std_logic;
+  signal ccr_clr : std_logic_vector(2 downto 0) := "000";
 
   -- ---------------------------------------------------------------- M
   signal m_ctrl           : ctrl_t;
@@ -168,7 +169,7 @@ begin
       instr    => instr);
 
   -- the word fetched in the next cycle is an INT / IRQ vector
-  vec_fetch_next <= d_redirect and (ctrl_d.is_int or ctrl_d.is_hw);
+  vec_fetch_next <= d_redirect and (ctrl_d.is_software_interrupt or ctrl_d.is_hardware_interrupt);
 
   process (clk)
   begin
@@ -213,21 +214,21 @@ begin
       ctrl_raw => ctrl_raw,
       ctrl     => ctrl_d);
 
-  d_ra1 <= f_rdst when ctrl_d.ra1_dst  = '1' else f_rs1;
-  d_ra2 <= f_rs1  when ctrl_d.ra2_src1 = '1' else f_rs2;
+  d_ra1 <= f_rdst when ctrl_d.read_port_1_uses_rdst  = '1' else f_rs1;
+  d_ra2 <= f_rs1  when ctrl_d.read_port_2_uses_rsrc1 = '1' else f_rs2;
 
-  d_imm     <= sext16(instr(15 downto 0));
+  d_imm     <= zext16(instr(15 downto 0)) when opcode = OP_LDM else sext16(instr(15 downto 0));
   d_imm_z   <= zext16(instr(15 downto 0));
   d_vec_int <= x"0000000" & "001" & instr(16);           -- 2 + index
-  d_link    <= ifd_pc when ctrl_d.is_hw = '1' else ifd_pc1;
+  d_link    <= ifd_pc when ctrl_d.is_hardware_interrupt = '1' else ifd_pc1;
 
   d_target <= instr       when d_vec_word     = '1' else
-              x"00000001" when ctrl_d.is_hw   = '1' else
-              d_vec_int   when ctrl_d.is_int  = '1' else
+              x"00000001" when ctrl_d.is_hardware_interrupt   = '1' else
+              d_vec_int   when ctrl_d.is_software_interrupt  = '1' else
               d_imm_z;
 
-  d_redirect_req <= d_vec_word or ctrl_d.is_jmp or ctrl_d.is_call or
-                    ctrl_d.is_jcc or ctrl_d.is_int or ctrl_d.is_hw;
+  d_redirect_req <= d_vec_word or ctrl_d.is_jump or ctrl_d.is_call or
+                    ctrl_d.is_conditional_jump or ctrl_d.is_software_interrupt or ctrl_d.is_hardware_interrupt;
 
   u_regfile : entity work.regfile
     port map (
@@ -239,11 +240,11 @@ begin
       rd2      => rf_rd2,
       wa1      => w_wa1,
       wd1      => w_res1,
-      we1      => w_ctrl.we1,
+      we1      => w_ctrl.write_port_1_enable,
       wa2      => w_wa2,
       wd2      => w_res2,
-      we2      => w_ctrl.we2,
-      swap     => w_ctrl.swap,
+      we2      => w_ctrl.write_port_2_enable,
+      swap     => w_ctrl.swap_write_addresses,
       regs_out => regs);
 
   u_intr_fsm : entity work.intr_fsm
@@ -321,29 +322,29 @@ begin
     port map (
       ra1      => x1_ra1,
       ra2      => x1_ra2,
-      use_a    => x1_ctrl.use_a,
-      use_b    => x1_ctrl.use_b,
+      use_a    => x1_ctrl.reads_operand_a,
+      use_b    => x1_ctrl.reads_operand_b,
       rf_a     => x1_a,
       rf_b     => x1_b,
-      x2_we1   => x2_ctrl.we1,
-      x2_we2   => x2_ctrl.we2,
-      x2_swap  => x2_ctrl.swap,
+      x2_we1   => x2_ctrl.write_port_1_enable,
+      x2_we2   => x2_ctrl.write_port_2_enable,
+      x2_swap  => x2_ctrl.swap_write_addresses,
       x2_wa1   => x2_wa1,
       x2_wa2   => x2_wa2,
       x2_res1  => x2_res1,
       x2_res2  => x2_res2,
-      m_we1    => m_ctrl.we1,
-      m_we2    => m_ctrl.we2,
-      m_swap   => m_ctrl.swap,
+      m_we1    => m_ctrl.write_port_1_enable,
+      m_we2    => m_ctrl.write_port_2_enable,
+      m_swap   => m_ctrl.swap_write_addresses,
       m_wa1    => m_wa1,
       m_wa2    => m_wa2,
-      m_mem_rd => m_ctrl.mem_rd,
+      m_mem_rd => m_ctrl.memory_read,
       m_res1   => m_res1,
       m_res2   => m_res2,
       m_q      => q_b,
-      w_we1    => w_ctrl.we1,
-      w_we2    => w_ctrl.we2,
-      w_swap   => w_ctrl.swap,
+      w_we1    => w_ctrl.write_port_1_enable,
+      w_we2    => w_ctrl.write_port_2_enable,
+      w_swap   => w_ctrl.swap_write_addresses,
       w_wa1    => w_wa1,
       w_wa2    => w_wa2,
       w_res1   => w_res1,
@@ -353,27 +354,31 @@ begin
       sel_a    => fsel_a,
       sel_b    => fsel_b);
 
-  alu_b <= x1_imm when x1_ctrl.b_imm = '1' else fb;
+  alu_b <= x1_imm when x1_ctrl.alu_b_uses_immediate = '1' else fb;
 
   u_alu : entity work.alu
     port map (
       a     => fa,
       b     => alu_b,
       shamt => x1_imm(4 downto 0),
-      op    => x1_ctrl.alu_op,
+      op    => x1_ctrl.alu_operation,
       y     => alu_y,
       z     => alu_z,
       n     => alu_n,
       c     => alu_c,
       cv    => alu_cv);
 
-  x1_res1 <= in_port when x1_ctrl.in_sel = '1' else alu_y;
+  x1_res1 <= in_port when x1_ctrl.result_from_in_port = '1' else alu_y;
 
-  -- CCR write gated by the X2 flush (the X1 instruction is being killed)
-  ccr_zn_we   <= x1_ctrl.zn_we and not mispredict;
-  ccr_c_we    <= x1_ctrl.c_we and alu_cv and not mispredict;
-  ccr_save    <= x2_ctrl.is_int or x2_ctrl.is_hw;
-  ccr_restore <= w_ctrl.is_rti;
+  ccr_zn_we   <= x1_ctrl.update_zero_negative_flags and not mispredict;
+  ccr_c_we    <= x1_ctrl.update_carry_flag and alu_cv and not mispredict;
+  ccr_save    <= x2_ctrl.is_software_interrupt or x2_ctrl.is_hardware_interrupt;
+  ccr_restore <= w_ctrl.is_return_from_interrupt;
+
+  ccr_clr <= "001" when (taken = '1' and x2_ctrl.jump_condition = COND_Z) else
+             "010" when (taken = '1' and x2_ctrl.jump_condition = COND_N) else
+             "100" when (taken = '1' and x2_ctrl.jump_condition = COND_C) else
+             "000";
 
   u_ccr : entity work.ccr
     port map (
@@ -384,6 +389,7 @@ begin
       c_in       => alu_c,
       zn_we      => ccr_zn_we,
       c_we       => ccr_c_we,
+      clr_mask   => ccr_clr,
       save       => ccr_save,
       restore    => ccr_restore,
       ccr_out    => ccr_val,
@@ -415,7 +421,7 @@ begin
       link_out => x2_link);
 
   -- =========================================================== X2 stage
-  x2_base <= x2_b when x2_ctrl.base_b = '1' else x2_a;
+  x2_base <= x2_b when x2_ctrl.base_address_is_operand_b = '1' else x2_a;
 
   u_addr_adder : entity work.addr_adder
     port map (
@@ -427,18 +433,18 @@ begin
     port map (
       clk   => clk,
       reset => reset,
-      dec   => x2_ctrl.sp_dec,
-      inc   => x2_ctrl.sp_inc,
+      dec   => x2_ctrl.stack_pointer_decrement,
+      inc   => x2_ctrl.stack_pointer_increment,
       sp    => sp_val,
       addr  => sp_addr);
 
-  x2_maddr <= sp_addr when x2_ctrl.addr_sp = '1' else x2_ea;
-  x2_sdata <= x2_link when x2_ctrl.st_link = '1' else x2_a;
+  x2_maddr <= sp_addr when x2_ctrl.memory_address_from_sp = '1' else x2_ea;
+  x2_sdata <= x2_link when x2_ctrl.store_link_address = '1' else x2_a;
 
   u_branch : entity work.branch_check
     port map (
-      is_jcc     => x2_ctrl.is_jcc,
-      cond       => x2_ctrl.cond,
+      is_jcc     => x2_ctrl.is_conditional_jump,
+      cond       => x2_ctrl.jump_condition,
       ccr        => ccr_val,
       taken      => taken,
       mispredict => mispredict);
@@ -452,7 +458,7 @@ begin
       en_a   => ram_en_a,
       q_a    => q_a,
       addr_b => x2_maddr(MEMINDEX-1 downto 0),
-      we_b   => x2_ctrl.mem_wr,
+      we_b   => x2_ctrl.memory_write,
       din_b  => x2_sdata,
       q_b    => q_b);
 
@@ -474,7 +480,7 @@ begin
       wa2_out  => m_wa2);
 
   -- =========================================================== M stage
-  m_final <= q_b when m_ctrl.mem_rd = '1' else m_res1;
+  m_final <= q_b when m_ctrl.memory_read = '1' else m_res1;
 
   u_m_w : entity work.m_w
     port map (
@@ -499,7 +505,7 @@ begin
     if rising_edge(clk) then
       if reset = '1' then
         out_r <= (others => '0');
-      elsif w_ctrl.out_we = '1' then
+      elsif w_ctrl.write_out_port = '1' then
         out_r <= w_res1;
       end if;
     end if;

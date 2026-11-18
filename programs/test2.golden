@@ -1,0 +1,14 @@
+# test2.golden -- spec semantics: a taken JZ/JN/JC clears the tested flag
+# Conditions: IN.PORT = 00000300 constant, IRQ = -1
+R0  00000000
+R1  00000610
+R2  00000300
+R3  00000300
+R4  00000300
+R5  FFFFFFFF
+R6  00000601
+R7  00000310
+SP  00000FFF
+CCR 0
+OUT 00000000
+PC  00000707

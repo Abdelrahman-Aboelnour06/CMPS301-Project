@@ -1,0 +1,14 @@
+# isr_pulse.golden -- expected state with ONE INTR.IN pulse at IRQ_CYCLE=14
+# (ISA semantics; derived independently of the RTL)
+R0  00000000
+R1  00000001
+R2  00000001
+R3  00000000
+R4  00000000
+R5  00000000
+R6  00000000
+R7  00000000
+SP  00000FFF
+CCR 0
+OUT 00000000
+PC  00000016

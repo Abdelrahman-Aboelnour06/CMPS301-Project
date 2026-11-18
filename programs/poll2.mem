@@ -1,0 +1,12 @@
+# poll2.mem -- 2-instruction polling loop waiting for the HW ISR (BUG-001). Run with IRQ=30.
+@000
+00000010    # 000: vector
+00000040    # 001: vector
+@010
+88800000    # 010: LDM
+51120000    # 011: AND
+C4000011    # 012: JZ
+1C000000    # 013: HLT
+@040
+88800001    # 040: LDM
+D8000000    # 041: RTI

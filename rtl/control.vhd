@@ -31,75 +31,145 @@ begin
   begin
     c := CTRL_NOP;
     if valid = '1' then
-      c.valid := '1';
+      c.is_real_instruction := '1';
       case opcode is
         when OP_NOP =>
           null;
         when OP_NOT =>
-          c.alu_op := ALU_NOT;  c.use_a := '1'; c.ra1_dst := '1';
-          c.we1 := '1'; c.zn_we := '1';
+          c.alu_operation := ALU_NOT;
+          c.reads_operand_a := '1';
+          c.read_port_1_uses_rdst := '1';
+          c.write_port_1_enable := '1';
+          c.update_zero_negative_flags := '1';
         when OP_INC =>
-          c.alu_op := ALU_INC;  c.use_a := '1'; c.ra1_dst := '1';
-          c.we1 := '1'; c.zn_we := '1'; c.c_we := '1';
+          c.alu_operation := ALU_INC;
+          c.reads_operand_a := '1';
+          c.read_port_1_uses_rdst := '1';
+          c.write_port_1_enable := '1';
+          c.update_zero_negative_flags := '1';
+          c.update_carry_flag := '1';
         when OP_OUT =>
-          c.alu_op := ALU_PASSA; c.use_a := '1'; c.out_we := '1';
+          c.alu_operation := ALU_PASSA;
+          c.reads_operand_a := '1';
+          c.write_out_port := '1';
         when OP_IN =>
-          c.in_sel := '1'; c.we1 := '1';
+          c.result_from_in_port := '1';
+          c.write_port_1_enable := '1';
         when OP_SETC =>
-          c.alu_op := ALU_SETC; c.c_we := '1';
+          c.alu_operation := ALU_SETC;
+          c.update_carry_flag := '1';
         when OP_HLT =>
-          c.is_hlt := '1';
+          c.is_halt := '1';
         when OP_MOV =>
-          c.alu_op := ALU_PASSA; c.use_a := '1'; c.we1 := '1';
+          c.alu_operation := ALU_PASSA;
+          c.reads_operand_a := '1';
+          c.write_port_1_enable := '1';
         when OP_SWAP =>
-          c.alu_op := ALU_PASSA; c.use_a := '1'; c.use_b := '1';
-          c.ra1_dst := '1'; c.ra2_src1 := '1';
-          c.we1 := '1'; c.we2 := '1'; c.swap := '1';
+          c.alu_operation := ALU_PASSA;
+          c.reads_operand_a := '1';
+          c.reads_operand_b := '1';
+          c.read_port_1_uses_rdst := '1';
+          c.read_port_2_uses_rsrc1 := '1';
+          c.write_port_1_enable := '1';
+          c.write_port_2_enable := '1';
+          c.swap_write_addresses := '1';
         when OP_ADD =>
-          c.alu_op := ALU_ADD; c.use_a := '1'; c.use_b := '1';
-          c.we1 := '1'; c.zn_we := '1'; c.c_we := '1';
+          c.alu_operation := ALU_ADD;
+          c.reads_operand_a := '1';
+          c.reads_operand_b := '1';
+          c.write_port_1_enable := '1';
+          c.update_zero_negative_flags := '1';
+          c.update_carry_flag := '1';
         when OP_SUB =>
-          c.alu_op := ALU_SUB; c.use_a := '1'; c.use_b := '1';
-          c.we1 := '1'; c.zn_we := '1'; c.c_we := '1';
+          c.alu_operation := ALU_SUB;
+          c.reads_operand_a := '1';
+          c.reads_operand_b := '1';
+          c.write_port_1_enable := '1';
+          c.update_zero_negative_flags := '1';
+          c.update_carry_flag := '1';
         when OP_AND =>
-          c.alu_op := ALU_AND; c.use_a := '1'; c.use_b := '1';
-          c.we1 := '1'; c.zn_we := '1';
+          c.alu_operation := ALU_AND;
+          c.reads_operand_a := '1';
+          c.reads_operand_b := '1';
+          c.write_port_1_enable := '1';
+          c.update_zero_negative_flags := '1';
         when OP_CMP =>
-          c.alu_op := ALU_SUB; c.use_a := '1'; c.use_b := '1';
-          c.zn_we := '1'; c.c_we := '1';
+          c.alu_operation := ALU_SUB;
+          c.reads_operand_a := '1';
+          c.reads_operand_b := '1';
+          c.update_zero_negative_flags := '1';
+          c.update_carry_flag := '1';
         when OP_SHR =>
-          c.alu_op := ALU_SHR; c.use_a := '1'; c.ra1_dst := '1';
-          c.we1 := '1'; c.zn_we := '1'; c.c_we := '1';
+          c.alu_operation := ALU_SHR;
+          c.reads_operand_a := '1';
+          c.read_port_1_uses_rdst := '1';
+          c.write_port_1_enable := '1';
+          c.update_zero_negative_flags := '1';
+          c.update_carry_flag := '1';
         when OP_SHL =>
-          c.alu_op := ALU_SHL; c.use_a := '1'; c.ra1_dst := '1';
-          c.we1 := '1'; c.zn_we := '1'; c.c_we := '1';
+          c.alu_operation := ALU_SHL;
+          c.reads_operand_a := '1';
+          c.read_port_1_uses_rdst := '1';
+          c.write_port_1_enable := '1';
+          c.update_zero_negative_flags := '1';
+          c.update_carry_flag := '1';
         when OP_IADD =>
-          c.alu_op := ALU_ADD; c.b_imm := '1'; c.use_a := '1';
-          c.we1 := '1'; c.zn_we := '1'; c.c_we := '1';
+          c.alu_operation := ALU_ADD;
+          c.alu_b_uses_immediate := '1';
+          c.reads_operand_a := '1';
+          c.write_port_1_enable := '1';
+          c.update_zero_negative_flags := '1';
+          c.update_carry_flag := '1';
         when OP_PUSH =>
-          c.use_a := '1'; c.mem_wr := '1'; c.addr_sp := '1'; c.sp_dec := '1';
+          c.reads_operand_a := '1';
+          c.memory_write := '1';
+          c.memory_address_from_sp := '1';
+          c.stack_pointer_decrement := '1';
         when OP_POP =>
-          c.mem_rd := '1'; c.addr_sp := '1'; c.sp_inc := '1'; c.we1 := '1';
+          c.memory_read := '1';
+          c.memory_address_from_sp := '1';
+          c.stack_pointer_increment := '1';
+          c.write_port_1_enable := '1';
         when OP_LDM =>
-          c.alu_op := ALU_PASSB; c.b_imm := '1'; c.we1 := '1';
+          c.alu_operation := ALU_PASSB;
+          c.alu_b_uses_immediate := '1';
+          c.write_port_1_enable := '1';
         when OP_LDD =>
-          c.use_a := '1'; c.mem_rd := '1'; c.we1 := '1';
+          c.reads_operand_a := '1';
+          c.memory_read := '1';
+          c.write_port_1_enable := '1';
         when OP_STD =>
-          c.use_a := '1'; c.use_b := '1'; c.mem_wr := '1'; c.base_b := '1';
+          c.reads_operand_a := '1';
+          c.reads_operand_b := '1';
+          c.memory_write := '1';
+          c.base_address_is_operand_b := '1';
         when OP_JMP =>
-          c.is_jmp := '1';
+          c.is_jump := '1';
         when OP_JZ | OP_JN | OP_JC =>
-          c.is_jcc := '1'; c.cond := opcode(1 downto 0);
+          c.is_conditional_jump := '1';
+          c.jump_condition := opcode(1 downto 0);
         when OP_CALL =>
-          c.is_call := '1'; c.mem_wr := '1'; c.addr_sp := '1';
-          c.sp_dec := '1'; c.st_link := '1';
+          c.is_call := '1';
+          c.memory_write := '1';
+          c.memory_address_from_sp := '1';
+          c.stack_pointer_decrement := '1';
+          c.store_link_address := '1';
         when OP_RET =>
-          c.is_ret := '1'; c.mem_rd := '1'; c.addr_sp := '1'; c.sp_inc := '1';
+          c.is_return := '1';
+          c.memory_read := '1';
+          c.memory_address_from_sp := '1';
+          c.stack_pointer_increment := '1';
         when OP_RTI =>
-          c.is_rti := '1'; c.mem_rd := '1'; c.addr_sp := '1'; c.sp_inc := '1';
+          c.is_return_from_interrupt := '1';
+          c.memory_read := '1';
+          c.memory_address_from_sp := '1';
+          c.stack_pointer_increment := '1';
         when OP_INT =>
-          c.is_int := '1'; c.mem_wr := '1'; c.addr_sp := '1';
-          c.sp_dec := '1'; c.st_link := '1';
+          c.is_software_interrupt := '1';
+          c.memory_write := '1';
+          c.memory_address_from_sp := '1';
+          c.stack_pointer_decrement := '1';
+          c.store_link_address := '1';
         when others =>
           null;                       -- undefined opcode: NOP
       end case;
@@ -109,36 +179,37 @@ begin
 
   -- Hardware-interrupt micro-op: push PC of the displaced D instruction,
   -- redirect fetch to vector M[1], save CCR to shadow, set in_ISR (X2).
-  hw <= (valid    => '1',
-         alu_op   => ALU_PASSA,
-         b_imm    => '0',
-         use_a    => '0',
-         use_b    => '0',
-         ra1_dst  => '0',
-         ra2_src1 => '0',
-         we1      => '0',
-         we2      => '0',
-         swap     => '0',
-         zn_we    => '0',
-         c_we     => '0',
-         in_sel   => '0',
-         out_we   => '0',
-         mem_rd   => '0',
-         mem_wr   => '1',
-         addr_sp  => '1',
-         sp_dec   => '1',
-         sp_inc   => '0',
-         st_link  => '1',
-         base_b   => '0',
-         is_jmp   => '0',
-         is_call  => '0',
-         is_jcc   => '0',
-         is_int   => '0',
-         is_hw    => '1',
-         is_ret   => '0',
-         is_rti   => '0',
-         is_hlt   => '0',
-         cond     => "00");
+  hw <= (
+         is_real_instruction           => '1',
+         alu_operation                 => ALU_PASSA,
+         alu_b_uses_immediate          => '0',
+         reads_operand_a               => '0',
+         reads_operand_b               => '0',
+         read_port_1_uses_rdst         => '0',
+         read_port_2_uses_rsrc1        => '0',
+         write_port_1_enable           => '0',
+         write_port_2_enable           => '0',
+         swap_write_addresses          => '0',
+         update_zero_negative_flags    => '0',
+         update_carry_flag             => '0',
+         result_from_in_port           => '0',
+         write_out_port                => '0',
+         memory_read                   => '0',
+         memory_write                  => '1',
+         memory_address_from_sp        => '1',
+         stack_pointer_decrement       => '1',
+         stack_pointer_increment       => '0',
+         store_link_address            => '1',
+         base_address_is_operand_b     => '0',
+         is_jump                       => '0',
+         is_call                       => '0',
+         is_conditional_jump           => '0',
+         is_software_interrupt         => '0',
+         is_hardware_interrupt         => '1',
+         is_return                     => '0',
+         is_return_from_interrupt      => '0',
+         is_halt                       => '0',
+         jump_condition                => "00");
 
   ctrl_raw <= raw;
   ctrl     <= hw when inject = '1' else raw;

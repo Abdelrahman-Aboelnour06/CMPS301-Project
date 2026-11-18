@@ -69,21 +69,21 @@ architecture rtl of hazard_unit is
 begin
 
   -- load-use: X1 holds a load that writes a GPR (POP / LDD; swap = '0')
-  x1_load <= x1_ctrl.mem_rd and x1_ctrl.we1;
-  use_hit <= '1' when ((d_ctrl.use_a = '1' and d_ra1 = x1_wa1) or
-                       (d_ctrl.use_b = '1' and d_ra2 = x1_wa1)) else '0';
+  x1_load <= x1_ctrl.memory_read and x1_ctrl.write_port_1_enable;
+  use_hit <= '1' when ((d_ctrl.reads_operand_a = '1' and d_ra1 = x1_wa1) or
+                       (d_ctrl.reads_operand_b = '1' and d_ra2 = x1_wa1)) else '0';
   stall_i <= x1_load and use_hit and not mispredict;
 
   redir_i <= d_redirect_req and not mispredict;
 
-  hold_i <= d_ctrl.is_ret  or d_ctrl.is_rti  or
-            x1_ctrl.is_ret or x1_ctrl.is_rti or
-            x2_ctrl.is_ret or x2_ctrl.is_rti or
-            m_ctrl.is_ret  or m_ctrl.is_rti  or
-            w_ctrl.is_ret  or w_ctrl.is_rti;
+  hold_i <= d_ctrl.is_return  or d_ctrl.is_return_from_interrupt  or
+            x1_ctrl.is_return or x1_ctrl.is_return_from_interrupt or
+            x2_ctrl.is_return or x2_ctrl.is_return_from_interrupt or
+            m_ctrl.is_return  or m_ctrl.is_return_from_interrupt  or
+            w_ctrl.is_return  or w_ctrl.is_return_from_interrupt;
 
-  wload_i  <= w_ctrl.is_ret or w_ctrl.is_rti;
-  halt_now <= d_ctrl.is_hlt and not mispredict;
+  wload_i  <= w_ctrl.is_return or w_ctrl.is_return_from_interrupt;
+  halt_now <= d_ctrl.is_halt and not mispredict;
   hstop_i  <= halted_r or halt_now;
 
   process (clk)

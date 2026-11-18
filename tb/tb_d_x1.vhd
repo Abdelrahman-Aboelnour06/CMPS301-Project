@@ -37,8 +37,13 @@ begin
     variable c : ctrl_t;
   begin
     c := CTRL_NOP;
-    c.valid := '1'; c.alu_op := ALU_ADD; c.use_a := '1'; c.use_b := '1';
-    c.we1 := '1'; c.zn_we := '1'; c.c_we := '1';
+    c.is_real_instruction := '1';
+    c.alu_operation := ALU_ADD;
+    c.reads_operand_a := '1';
+    c.reads_operand_b := '1';
+    c.write_port_1_enable := '1';
+    c.update_zero_negative_flags := '1';
+    c.update_carry_flag := '1';
     c_add <= c;
     wait;
   end process;
@@ -84,7 +89,7 @@ begin
     -- flush with en = 1 and a valid control word
     en <= '1'; ctrl_in <= c_add; tick;
     check(ctrl_out = CTRL_NOP, "flush -> bubble", errs);
-    check_sl(ctrl_out.we1, '0', "bubble does not write", errs);
+    check_sl(ctrl_out.write_port_1_enable, '0', "bubble does not write", errs);
 
     flush <= '0'; tick;
     check(ctrl_out = c_add, "normal again", errs);

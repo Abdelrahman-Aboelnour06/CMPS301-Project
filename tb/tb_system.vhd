@@ -111,6 +111,7 @@ architecture sim of tb_system is
   signal out_port : word_t;
   signal regs     : reg_array_t;
   signal rmap     : rename_map_t;
+  signal R_logical : reg_array_t;
   signal pc_out   : word_t;
   signal sp_out   : word_t;
   signal ccr_out  : std_logic_vector(3 downto 0);
@@ -120,6 +121,9 @@ begin
   clk <= not clk after 5 ns;
 
   rmap <= << signal dut.rename_map : rename_map_t >>;
+  gen_logical_r : for i in 0 to 7 generate
+    R_logical(i) <= regs(to_integer(unsigned(rmap(i))));
+  end generate;
 
   dut : entity work.top
     generic map (PROG => PROG)

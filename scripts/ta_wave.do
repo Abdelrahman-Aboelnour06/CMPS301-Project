@@ -10,7 +10,7 @@
 
 set mem_file    "programs/test2.mem"
 set golden_file "programs/test2.golden"
-set in_val      "00000000"
+set in_val      "00000300"
 set irq_cyc     "-1"
 
 if {$argc >= 1} { set mem_file    $1 }
@@ -30,7 +30,7 @@ add wave -noupdate -radix hex -label "Out.port" /tb_system/dut/out_port
 add wave -noupdate -radix hex -label "PC"       /tb_system/dut/pc_out
 add wave -noupdate -radix hex -label "SP"       /tb_system/dut/sp_out
 add wave -noupdate -radix bin -label "Flags(C,N,Z)" /tb_system/dut/ccr_out
-add wave -noupdate -radix hex -label "R0-R7"    /tb_system/dut/R_values
+add wave -noupdate -radix hex -label "R0-R7"    /tb_system/R_logical
 
 run -all
 wave zoom full

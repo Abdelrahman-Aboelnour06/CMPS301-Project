@@ -1,22 +1,6 @@
 -------------------------------------------------------------------------------
--- intr_fsm.vhd -- hardware interrupt (INTR.IN) request latch and injection.
---
---   intr_pending : set on a rising edge of intr_in while in_ISR = '0'
---                  (a line already high when reset is released is not an
---                  edge);
---                  cleared when the injected micro-op leaves X2 (enters M).
---                  (Clear has priority over a simultaneous new edge.)
---   in_isr       : set when an INT or IRQ micro-op leaves X2; cleared when
---                  RTI is in W. Gates new requests and injection
---                  (non-nested interrupts, single shadow CCR).
---   inject       : replace the D-stage instruction by the IRQ micro-op.
---                  Allowed only in a "calm" cycle:
---                    * a real instruction is in D (not a bubble / vector),
---                    * no Jcc in D, X1, X2,
---                    * no RET / RTI in D, X1, X2, M, W,
---                    * no X2 mispredict, not booting.
---                  If the micro-op were ever flushed before M, pending stays
---                  set and injection repeats at the next calm cycle.
+-- Latch IRQ edges, drain the pipeline, then issue the interrupt micro-op.
+-- One request can wait while an ISR runs. RTI releases it for service.
 -------------------------------------------------------------------------------
 library ieee;
 use ieee.std_logic_1164.all;
@@ -27,16 +11,16 @@ entity intr_fsm is
     clk          : in  std_logic;
     reset        : in  std_logic;
     intr_in      : in  std_logic;
-    d_real       : in  std_logic;   -- IF/D holds a real instruction
-    d_ctrl_raw   : in  ctrl_t;      -- decode of D before injection
+    front_busy   : in  std_logic;   -- valid D word or a vector being fetched
+    halted       : in  std_logic;
     x1_ctrl      : in  ctrl_t;
     x2_ctrl      : in  ctrl_t;
     m_ctrl       : in  ctrl_t;
     w_ctrl       : in  ctrl_t;
-    mispredict   : in  std_logic;
     boot_busy    : in  std_logic;
     inject       : out std_logic;
     calm         : out std_logic;
+    drain        : out std_logic;
     intr_pending : out std_logic;
     in_isr       : out std_logic
   );
@@ -48,21 +32,18 @@ architecture rtl of intr_fsm is
   signal in_isr_r  : std_logic := '0';
   signal calm_i    : std_logic;
   signal inject_i  : std_logic;
-  signal ret_busy  : std_logic;
+  signal drain_i   : std_logic;
 begin
 
-  ret_busy <= d_ctrl_raw.is_return or d_ctrl_raw.is_return_from_interrupt or
-              x1_ctrl.is_return    or x1_ctrl.is_return_from_interrupt    or
-              x2_ctrl.is_return    or x2_ctrl.is_return_from_interrupt    or
-              m_ctrl.is_return     or m_ctrl.is_return_from_interrupt     or
-              w_ctrl.is_return     or w_ctrl.is_return_from_interrupt;
+  calm_i <= not (front_busy or x1_ctrl.is_real_instruction or
+                 x2_ctrl.is_real_instruction or m_ctrl.is_real_instruction or
+                 w_ctrl.is_real_instruction or boot_busy or halted);
 
-  calm_i <= d_real and not ret_busy and
-            not mispredict and not boot_busy;
-
-  inject_i <= pending_r and not in_isr_r and calm_i;
+  drain_i  <= pending_r and not (in_isr_r or boot_busy or halted);
+  inject_i <= drain_i and calm_i;
   inject   <= inject_i;
-  calm   <= calm_i;
+  calm     <= calm_i;
+  drain    <= drain_i;
 
   process (clk)
   begin

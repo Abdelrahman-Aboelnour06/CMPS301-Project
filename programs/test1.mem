@@ -8,7 +8,7 @@
 00000140    # 003: .word isr1
 @010
 8B800000    # 010: LDM R7, 0   ; R7 = poison flag, must stay 0
-8880FFFF    # 011: LDM R1, -1   ; R1 = 0xFFFFFFFF
+6090FFFF    # 011: IADD R1, R1, -1 (R1 starts at zero)
 61100001    # 012: IADD R2, R1, 1   ; R2 = 0, Z=1 C=1
 CC000015    # 013: JC t1   ; taken (C)
 8B800BAD    # 014: LDM R7, 0xBAD

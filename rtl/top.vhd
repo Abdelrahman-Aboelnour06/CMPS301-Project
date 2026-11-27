@@ -3,7 +3,7 @@
 --
 --   F  : PC drives RAM Port A; registered RAM output = D-stage instruction.
 --   D  : decode, register read, JMP/CALL/INT/vector redirect, Jcc predicted
---        taken, IRQ micro-op injection.
+--        taken, IRQ micro-op injection after drain.
 --   X1 : forwarding muxes, ALU + barrel shifter, CCR update, IN.PORT sample.
 --   X2 : LDD/STD address adder, SP read/update, Jcc resolution, flush.
 --   M  : RAM Port B access (inputs registered at the X2->M edge).
@@ -49,6 +49,9 @@ architecture rtl of top is
   signal pc_write_enable          : std_logic := '0';
   signal fetch_ram_addr     : maddr_t := (others => '0');
   signal fetch_ram_enable       : std_logic := '1';
+  signal decode_enable          : std_logic;
+  signal ram_fetch_hold         : std_logic;
+  signal pc_enable_normal       : std_logic;
   signal fetch_ram_data            : word_t := WORD_ZERO;
   signal instruction_word          : word_t := WORD_ZERO;
   signal vec_fetch_next : std_logic := '0';
@@ -66,7 +69,6 @@ architecture rtl of top is
   signal decode_is_real_instr         : std_logic := '0';
   signal decode_is_vector_word     : std_logic := '0';
   signal decode_inject_irq       : std_logic := '0';
-  signal ctrl_raw       : ctrl_t := CTRL_NOP;
   signal ctrl_d         : ctrl_t := CTRL_NOP;
   signal decode_read_addr_1          : raddr_t := "000";
   signal decode_read_addr_2          : raddr_t := "000";
@@ -145,6 +147,9 @@ architecture rtl of top is
   signal ifd_flush      : std_logic := '0';
   signal dx1_flush      : std_logic := '0';
   signal x1x2_flush     : std_logic := '0';
+  signal irq_front_busy : std_logic;
+  signal irq_drain      : std_logic;
+  signal irq_block_fetch : std_logic;
   signal intr_calm      : std_logic := '0';
   signal intr_pending   : std_logic := '0';
   signal in_isr         : std_logic := '0';
@@ -188,10 +193,19 @@ begin
       pc_q     => current_pc,
       pc_plus1 => pc_plus_1);
 
+  -- During IRQ drain, keep the next unfetched PC. Older redirects and
+  -- outstanding interrupt-vector reads still complete.
+  irq_front_busy <= if_d_reg.is_valid or vec_fetch_r;
+  irq_block_fetch <= irq_drain and not vec_fetch_r;
+  ram_fetch_hold <= stall or irq_block_fetch;
+  decode_enable <= not stall;
+  pc_write_enable <= pc_enable_normal and
+                     (not irq_drain or w_load or mispredict or d_redirect);
+
   u_instr_mem : entity work.instr_mem
     port map (
       pc       => current_pc,
-      hold     => stall,
+      hold     => ram_fetch_hold,
       ram_addr => fetch_ram_addr,
       ram_en   => fetch_ram_enable,
       ram_q    => fetch_ram_data,
@@ -212,7 +226,7 @@ begin
   end process;
 
   ifd_in <= (
-    is_valid              => '1',
+    is_valid              => not irq_block_fetch,
     is_interrupt_vector   => vec_fetch_r,
     program_counter       => current_pc,
     next_program_counter  => pc_plus_1);
@@ -221,7 +235,7 @@ begin
     port map (
       clk   => clk,
       reset => reset,
-      en    => fetch_ram_enable,              -- = not stall
+      en    => decode_enable,
       flush => ifd_flush,
       d_in  => ifd_in,
       d_out => if_d_reg);
@@ -242,7 +256,7 @@ begin
       opcode   => opcode,
       valid    => decode_is_real_instr,
       inject   => decode_inject_irq,
-      ctrl_raw => ctrl_raw,
+      ctrl_raw => open,
       ctrl     => ctrl_d);
   PROC_RENAME : process (clk)
     variable idx_dst, idx_src : integer range 0 to 7;
@@ -272,7 +286,7 @@ begin
   decode_immediate_unsigned   <= '1' when opcode = OP_LDM else '0';
   decode_jump_target_imm   <= zext16(instruction_word(15 downto 0));
   decode_sw_int_vector_addr <= x"0000000" & "001" & instruction_word(16);             -- 2 + index
-  decode_link_address    <= if_d_reg.program_counter when ctrl_d.is_hardware_interrupt = '1' else if_d_reg.next_program_counter;
+  decode_link_address    <= current_pc when ctrl_d.is_hardware_interrupt = '1' else if_d_reg.next_program_counter;
 
   decode_branch_target <= instruction_word       when decode_is_vector_word                   = '1' else
               x"00000001" when ctrl_d.is_hardware_interrupt = '1' else
@@ -301,16 +315,16 @@ begin
       clk          => clk,
       reset        => reset,
       intr_in      => intr_in,
-      d_real       => decode_is_real_instr,
-      d_ctrl_raw   => ctrl_raw,
+      front_busy   => irq_front_busy,
+      halted       => halted_i,
       x1_ctrl      => d_x1_reg.control,
       x2_ctrl      => x1_x2_reg.control,
       m_ctrl       => x2_m_reg.control,
       w_ctrl       => m_w_reg.control,
-      mispredict   => mispredict,
       boot_busy    => boot_busy,
       inject       => decode_inject_irq,
       calm         => intr_calm,
+      drain        => irq_drain,
       intr_pending => intr_pending,
       in_isr       => in_isr);
 
@@ -339,7 +353,7 @@ begin
       ifd_flush      => ifd_flush,
       dx1_flush      => dx1_flush,
       x1x2_flush     => x1x2_flush,
-      pc_en          => pc_write_enable);
+      pc_en          => pc_enable_normal);
 
   dx1_in <= (
     control               => ctrl_d,

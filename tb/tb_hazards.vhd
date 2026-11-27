@@ -1,6 +1,6 @@
 -------------------------------------------------------------------------------
 -- tb_hazards.vhd -- integration test of the hazard machinery (no external
--- files). Four independent cores run four programs in parallel:
+-- files). Independent cores run these programs in parallel:
 --   loaduse : load-use at distance 1 (LDD->ADD, POP->INC, LDD->STD data)
 --             and distance 2 (LDD, NOP, ADD); store/load forwarding
 --   branch  : JZ loop with 2 mispredicts + 1 correct prediction, JC/JN
@@ -9,6 +9,8 @@
 --             forwarding, SWAP Rx,Rx, SHL/SHR, IN/OUT, NOT
 --   irq     : two INTR.IN pulses during a JZ/JMP loop: injection gating
 --             (Jcc in flight), ISR with PUSH/POP/flags, RTI CCR restore
+--   drain   : IRQ handler sees every already-fetched INC before RTI
+--   irqmiss : IRQ during a mispredicted JZ resumes at the fall-through PC
 -- Final registers, SP, CCR, OUT.PORT and PC are compared with values
 -- obtained from the ISA semantics.
 -------------------------------------------------------------------------------
@@ -40,7 +42,8 @@ architecture sim of tb_hazards is
     m(20) := enc(OP_LDD, rs1 => 1, imm => -1);  -- 0x014: LDD R0, -1(R1)
     m(21) := enc(OP_STD, rs2 => 1, imm => 1);  -- 0x015: STD R0, 1(R1)
     m(22) := enc(OP_LDD, rd => 2, rs1 => 1, imm => 1);  -- 0x016: LDD R2, 1(R1)
-    m(23) := enc(OP_HLT);  -- 0x017: HLT
+    m(23) := enc(OP_LDD, rd => 3, rs1 => 1, imm => 3995);  -- 100 + 3995 = 0xFFF
+    m(24) := enc(OP_HLT);
     return m;
   end function;
   function prog_branch return mem_t is
@@ -130,29 +133,51 @@ architecture sim of tb_hazards is
     return m;
   end function;
 
-  constant NCORE : natural := 4;
+  function prog_drain(branch_miss : boolean) return mem_t is
+    variable m : mem_t := MEM_ZERO;
+  begin
+    m(0) := x"00000010";
+    m(1) := x"00000040";
+    for address in 16 to 23 loop
+      m(address) := enc(OP_INC);
+    end loop;
+    if branch_miss then
+      m(22) := enc(OP_JZ, imm => 48);  -- Z is clear. Recover to address 23.
+      m(48) := enc(OP_INC, rd => 2);   -- Wrong-path marker.
+      m(49) := enc(OP_HLT);
+    end if;
+    m(24) := enc(OP_HLT);
+    m(64) := enc(OP_MOV, rd => 1, rs1 => 0);  -- Snapshot R0 at IRQ entry.
+    m(65) := enc(OP_LDD, rd => 3, rs1 => 7, imm => 4095);  -- Read saved PC at M[0xFFF].
+    m(66) := enc(OP_RTI);
+    return m;
+  end function;
+
+  constant NCORE : natural := 6;
   type mem_arr_t   is array (0 to NCORE-1) of mem_t;
   type word_arr_t  is array (0 to NCORE-1) of word_t;
   type regs_arr_t  is array (0 to NCORE-1) of reg_array_t;
   type ccr_arr_t   is array (0 to NCORE-1) of std_logic_vector(3 downto 0);
   type name_arr_t  is array (0 to NCORE-1) of string(1 to 7);
 
-  constant PROGS : mem_arr_t := (prog_loaduse, prog_branch, prog_callint, prog_irq);
-  constant NAMES : name_arr_t := ("loaduse", "branch ", "callint", "irq    ");
-  constant INPUT : word_arr_t := (x"00000000", x"00000000", x"1234ABCD", x"00000000");
+  constant PROGS : mem_arr_t := (prog_loaduse, prog_branch, prog_callint, prog_irq, prog_drain(false), prog_drain(true));
+  constant NAMES : name_arr_t := ("loaduse", "branch ", "callint", "irq    ", "drain  ", "irqmiss");
+  constant INPUT : word_arr_t := (x"00000000", x"00000000", x"1234ABCD", x"00000000", x"00000000", x"00000000");
 
   constant EXP_R : regs_arr_t := (
-    (x"000000AB", x"00000064", x"000000AB", x"00000055",
+    (x"000000AB", x"00000064", x"000000AB", x"000000AA",
      x"000000AA", x"00000055", x"000000AA", x"000000AB"),
     (x"00000003", x"00000000", x"00000001", x"00000002",
      x"00000000", x"00000000", x"00000123", x"00000000"),
     (x"00000000", x"00002223", x"00001111", x"00002223",
      x"00010001", x"00012224", x"00007808", x"EDCB5432"),
     (x"00000028", x"00000000", x"00000000", x"00000000",
-     x"00000000", x"00000000", x"00000000", x"00000002"));
-  constant EXP_CCR : ccr_arr_t  := ("0000", "0000", "0010", "0100");
-  constant EXP_OUT : word_arr_t := (x"00000000", x"00000000", x"1234ABCD", x"00000028");
-  constant EXP_PC  : word_arr_t := (x"00000018", x"0000001E", x"00000018", x"00000010");
+     x"00000000", x"00000000", x"00000000", x"00000002"),
+    (0 => x"00000008", 1 => x"00000007", 3 => x"00000017", others => x"00000000"),
+    (0 => x"00000007", 1 => x"00000006", 3 => x"00000017", others => x"00000000"));
+  constant EXP_CCR : ccr_arr_t  := ("0000", "0000", "0010", "0100", "0000", "0000");
+  constant EXP_OUT : word_arr_t := (x"00000000", x"00000000", x"1234ABCD", x"00000028", x"00000000", x"00000000");
+  constant EXP_PC  : word_arr_t := (x"00000019", x"0000001E", x"00000018", x"00000010", x"00000019", x"00000019");
 
   signal clk      : std_logic := '0';
   signal reset    : std_logic := '1';
@@ -195,6 +220,9 @@ begin
   intr(3) <= '1' when (cycle >= 30 and cycle < 32) or (cycle >= 120 and cycle < 125)
              else '0';
 
+  -- The IRQ sampling edge fetches address 22 in both directed programs.
+  intr(4 to 5) <= "11" when cycle = 8 else "00";
+
   stim : process
     variable errs : natural := 0;
     variable n    : natural := 0;
@@ -203,11 +231,11 @@ begin
       wait until rising_edge(clk);
     end loop;
     reset <= '0';
-    while halted /= "1111" and n < 2000 loop
+    while halted /= (halted'range => '1') and n < 2000 loop
       wait until rising_edge(clk);
       n := n + 1;
     end loop;
-    check(halted = "1111", "all cores halted", errs);
+    check(halted = (halted'range => '1'), "all cores halted", errs);
     for i in 1 to 8 loop
       wait until rising_edge(clk);
     end loop;

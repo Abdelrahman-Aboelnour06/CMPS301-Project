@@ -1,6 +1,6 @@
 -------------------------------------------------------------------------------
 -- tb_sp_unit.vhd -- directed self-checking testbench for sp_unit.vhd
--- Reset value 4095, pre-decrement push address, post-increment pop address,
+-- Reset value 4095, post-decrement push address, pre-increment pop address,
 -- idle hold, push/pop sequence, 32-bit wrap below 0, dec priority.
 -------------------------------------------------------------------------------
 library ieee;
@@ -39,19 +39,19 @@ begin
     wait for 1 ns;
     check_eq(addr, x"00000FFF", "idle addr = SP", errs);
 
-    -- push: address SP-1, SP <- SP-1
+    -- push: address SP, SP <- SP-1
     dec <= '1';
     wait for 1 ns;
-    check_eq(addr, x"00000FFE", "push addr = SP-1", errs);
+    check_eq(addr, x"00000FFF", "push addr = SP", errs);
     tick;
     check_eq(sp, x"00000FFE", "after push", errs);
     tick;
     check_eq(sp, x"00000FFD", "after 2nd push", errs);
 
-    -- pop: address SP, SP <- SP+1
+    -- pop: address SP+1, SP <- SP+1
     dec <= '0'; inc <= '1';
     wait for 1 ns;
-    check_eq(addr, x"00000FFD", "pop addr = SP", errs);
+    check_eq(addr, x"00000FFE", "pop addr = SP+1", errs);
     tick;
     check_eq(sp, x"00000FFE", "after pop", errs);
 
@@ -62,7 +62,7 @@ begin
     -- dec has priority when both asserted
     dec <= '1'; inc <= '1';
     wait for 1 ns;
-    check_eq(addr, x"00000FFD", "both: dec addr", errs);
+    check_eq(addr, x"00000FFE", "both: dec addr = SP", errs);
     tick;
     check_eq(sp, x"00000FFD", "both: dec wins", errs);
 
@@ -77,7 +77,7 @@ begin
     for i in 1 to 4095 loop tick; end loop;
     check_eq(sp, x"00000000", "SP reaches 0", errs);
     wait for 1 ns;
-    check_eq(addr, x"FFFFFFFF", "push at 0 addr = 0xFFFFFFFF", errs);
+    check_eq(addr, x"00000000", "push at 0 uses address 0", errs);
     tick;
     check_eq(sp, x"FFFFFFFF", "SP wraps to 0xFFFFFFFF", errs);
     dec <= '0';

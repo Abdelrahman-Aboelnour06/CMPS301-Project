@@ -1,11 +1,6 @@
 -------------------------------------------------------------------------------
 -- tb_intr_fsm.vhd -- directed self-checking testbench for intr_fsm.vhd
--- Edge latching, level does not re-trigger, every injection-gating
--- condition (bubble/vector in D, RET/RTI in D/X1/X2/M/W, mispredict, boot),
--- a Jcc in D/X1/X2 does NOT block injection (BUG-001 fix), pending cleared
--- on injection, in_ISR set by INT and IRQ and cleared by RTI, edges arriving
--- while in_ISR are queued and injected after RTI (BUG-002 fix), an edge
--- coincident with an injection wins, reset.
+-- Check IRQ edge capture, pipeline draining, ISR deferral and reset.
 -------------------------------------------------------------------------------
 library ieee;
 use ieee.std_logic_1164.all;
@@ -18,11 +13,11 @@ end entity tb_intr_fsm;
 architecture sim of tb_intr_fsm is
   signal clk, reset  : std_logic := '1';
   signal intr_in     : std_logic := '0';
-  signal d_real      : std_logic := '0';
-  signal d_ctrl_raw, x1_ctrl, x2_ctrl, m_ctrl, w_ctrl : ctrl_t := CTRL_NOP;
-  signal mispredict  : std_logic := '0';
+  signal front_busy      : std_logic := '0';
+  signal x1_ctrl, x2_ctrl, m_ctrl, w_ctrl : ctrl_t := CTRL_NOP;
+  signal halted      : std_logic := '0';
   signal boot_busy   : std_logic := '0';
-  signal inject, calm, intr_pending, in_isr : std_logic;
+  signal inject, calm, drain, intr_pending, in_isr : std_logic;
 
   function c_jcc return ctrl_t is
     variable c : ctrl_t := CTRL_NOP;
@@ -64,10 +59,10 @@ begin
   clk <= not clk after 5 ns;
 
   dut : entity work.intr_fsm
-    port map (clk => clk, reset => reset, intr_in => intr_in, d_real => d_real,
-              d_ctrl_raw => d_ctrl_raw, x1_ctrl => x1_ctrl, x2_ctrl => x2_ctrl,
-              m_ctrl => m_ctrl, w_ctrl => w_ctrl, mispredict => mispredict,
-              boot_busy => boot_busy, inject => inject, calm => calm,
+    port map (clk => clk, reset => reset, intr_in => intr_in, front_busy => front_busy,
+              halted => halted, x1_ctrl => x1_ctrl, x2_ctrl => x2_ctrl,
+              m_ctrl => m_ctrl, w_ctrl => w_ctrl,
+              boot_busy => boot_busy, inject => inject, calm => calm, drain => drain,
               intr_pending => intr_pending, in_isr => in_isr);
 
   stim : process
@@ -79,9 +74,9 @@ begin
     end procedure;
     procedure quiet is
     begin
-      d_ctrl_raw <= CTRL_NOP; x1_ctrl <= CTRL_NOP; x2_ctrl <= CTRL_NOP;
-      m_ctrl <= CTRL_NOP; w_ctrl <= CTRL_NOP; mispredict <= '0';
-      boot_busy <= '0'; d_real <= '1';
+      x1_ctrl <= CTRL_NOP; x2_ctrl <= CTRL_NOP;
+      m_ctrl <= CTRL_NOP; w_ctrl <= CTRL_NOP; halted <= '0';
+      boot_busy <= '0'; front_busy <= '0';
     end procedure;
   begin
     intr_in <= '1';                 -- held high during reset: must not latch
@@ -100,38 +95,27 @@ begin
     check_sl(intr_pending, '1', "edge latched", errs);
     check_sl(inject, '1', "inject when calm", errs);
 
-    -- every gating condition blocks injection
-    for g in 0 to 8 loop
+    -- Any in-flight instruction must finish before injection.
+    for g in 0 to 6 loop
       quiet;
       case g is
-        when 0  => d_real     <= '0';
-        when 1  => d_ctrl_raw <= c_ret(false);
-        when 2  => x1_ctrl    <= c_ret(true);
-        when 3  => x2_ctrl    <= c_ret(false);
-        when 4  => m_ctrl     <= c_ret(true);
-        when 5  => w_ctrl     <= c_ret(false);
-        when 6  => mispredict <= '1';
-        when 7  => boot_busy  <= '1';
-        when others => d_ctrl_raw <= c_ret(true);
+        when 0 => front_busy <= '1';
+        when 1 => x1_ctrl <= c_ret(false);
+        when 2 => x2_ctrl <= c_jcc;
+        when 3 => m_ctrl <= c_ret(true);
+        when 4 => w_ctrl <= c_ret(false);
+        when 5 => boot_busy <= '1';
+        when others => halted <= '1';
       end case;
       wait for 1 ns;
-      check_sl(calm, '0', "gate " & integer'image(g) & " calm", errs);
-      check_sl(inject, '0', "gate " & integer'image(g) & " inject", errs);
-      check_sl(intr_pending, '1', "gate " & integer'image(g) & " pending kept", errs);
-    end loop;
-    quiet;
-
-    -- a Jcc in D / X1 / X2 does not block injection (BUG-001)
-    for h in 0 to 2 loop
-      quiet;
-      case h is
-        when 0      => d_ctrl_raw <= c_jcc;
-        when 1      => x1_ctrl    <= c_jcc;
-        when others => x2_ctrl    <= c_jcc;
-      end case;
-      wait for 1 ns;
-      check_sl(calm, '1', "jcc " & integer'image(h) & " calm", errs);
-      check_sl(inject, '1', "jcc " & integer'image(h) & " inject", errs);
+      check_sl(calm, '0', "pipeline unavailable", errs);
+      check_sl(inject, '0', "wait before injecting", errs);
+      check_sl(intr_pending, '1', "pending kept", errs);
+      if g < 5 then
+        check_sl(drain, '1', "block new fetches during drain", errs);
+      else
+        check_sl(drain, '0', "no drain during boot or halt", errs);
+      end if;
     end loop;
     quiet;
 
@@ -150,6 +134,7 @@ begin
     intr_in <= '0'; tick; intr_in <= '1'; tick;
     check_sl(intr_pending, '1', "edge queued in ISR", errs);
     check_sl(inject, '0', "no inject while in ISR", errs);
+    check_sl(drain, '0', "ISR fetches can continue", errs);
 
     -- RTI in W clears in_isr; the queued request is injected next
     w_ctrl <= c_ret(true); tick;

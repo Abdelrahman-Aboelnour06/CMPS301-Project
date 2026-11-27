@@ -19,8 +19,8 @@ RUNFLAGS := --assert-level=error --ieee-asserts=disable-at-0
 
 MEM      ?= programs/demo.mem
 GOLDEN   ?= programs/demo.golden
-IN       ?= 0000ABCD
-IRQ      ?= 40
+IN       ?= 00000000
+IRQ      ?= -1
 
 # analysis order (dependencies first)
 RTL_ORDER := cpu_pkg pc pc_mux data_mem instr_mem if_d regfile control alu \

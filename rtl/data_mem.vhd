@@ -45,6 +45,8 @@ architecture rtl of data_mem is
   attribute ram_init_file of ram : signal is "program.mif";
   attribute ram_style : string;
   attribute ram_style of ram : signal is "block";
+  attribute ramstyle : string;
+  attribute ramstyle of ram : signal is "M10K, no_rw_check";
 
   signal qa_raw     : word_t    := (others => '0');
   signal qb_r       : word_t    := (others => '0');

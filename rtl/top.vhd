@@ -116,6 +116,7 @@ architecture rtl of top is
   signal stack_pointer_mem_addr        : word_t := SP_RESET;
   signal execute2_mem_addr       : word_t := WORD_ZERO;
   signal execute2_store_data       : word_t := WORD_ZERO;
+  signal execute2_mem_write      : std_logic := '0';
   signal taken          : std_logic := '0';
   signal mispredict     : std_logic := '0';
 
@@ -463,6 +464,7 @@ begin
 
   execute2_mem_addr <= stack_pointer_mem_addr   when x1_x2_reg.control.memory_address_from_sp = '1' else execute2_effective_addr;
   execute2_store_data <= x1_x2_reg.link_address when x1_x2_reg.control.store_link_address = '1'     else x1_x2_reg.result_1;
+  execute2_mem_write  <= x1_x2_reg.control.memory_write and not reset;
 
   u_branch : entity work.branch_check
     port map (
@@ -482,7 +484,7 @@ begin
       en_a   => fetch_ram_enable,
       q_a    => fetch_ram_data,
       addr_b => execute2_mem_addr(MEMINDEX-1 downto 0),
-      we_b   => x1_x2_reg.control.memory_write,
+      we_b   => execute2_mem_write,
       din_b  => execute2_store_data,
       q_b    => mem_ram_data);
 

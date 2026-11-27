@@ -28,12 +28,7 @@ vsim -c work.tb_reset_fsm -do "set NumericStdNoWarnings 1; run -all; quit"
 vsim -c work.tb_intr_fsm -do "set NumericStdNoWarnings 1; run -all; quit"
 vsim -c work.tb_top -do "set NumericStdNoWarnings 1; run -all; quit"
 vsim -c work.tb_hazards -do "set NumericStdNoWarnings 1; run -all; quit"
-
-# --- 3. System Tests (tb_system) ---
-vsim -c "-gMEM_FILE=programs/test2.mem" "-gGOLDEN_FILE=programs/test2.golden" "-gIN_VALUE=00000300" "-gIRQ_CYCLE=-1" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
-vsim -c "-gMEM_FILE=programs/isr_pulse.mem" "-gGOLDEN_FILE=programs/isr_pulse.golden" "-gIN_VALUE=00000000" "-gIRQ_CYCLE=14" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
-vsim -c "-gMEM_FILE=programs/poll2.mem" "-gGOLDEN_FILE=programs/poll2.golden" "-gIN_VALUE=00000000" "-gIRQ_CYCLE=30" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
-
+	
 # --- 4. TA Tests (after assembling with Assembler/asm.exe) ---
 vsim -c "-gMEM_FILE=programs/ta_test1.mem" "-gGOLDEN_FILE=programs/ta_test1.golden" "-gIN_VALUE=12345678" "-gIRQ_CYCLE=-1" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
 vsim -c "-gMEM_FILE=programs/ta_test2.mem" "-gGOLDEN_FILE=programs/ta_test2.golden" "-gIN_VALUE=00000000" "-gIRQ_CYCLE=-1" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
@@ -48,5 +43,27 @@ $env:PATH = "C:\Program Files\Git\usr\bin;" + $env:PATH
 Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
   
 # to run these Tests (isr_pulse) and (poll2)
+# Compile (run once after RTL/TB edits)
+vsim -c -do "do scripts/questa_compile.do; quit"
+
+# 1. demo (uses defaults: IN=00000000, IRQ=-1)
+vsim -c work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+
+# 2. test2 (IN=00000300, IRQ=-1)
+vsim -c "-gMEM_FILE=programs/test2.mem" "-gGOLDEN_FILE=programs/test2.golden" "-gIN_VALUE=00000300" "-gIRQ_CYCLE=-1" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+
+# 3. isr_pulse (IRQ pulse at cycle 14)
 vsim -c "-gMEM_FILE=programs/isr_pulse.mem" "-gGOLDEN_FILE=programs/isr_pulse.golden" "-gIRQ_CYCLE=14" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+
+# 4. poll2 (IRQ pulse at cycle 30)
 vsim -c "-gMEM_FILE=programs/poll2.mem" "-gGOLDEN_FILE=programs/poll2.golden" "-gIRQ_CYCLE=30" work.tb_system -do "set NumericStdNoWarnings 1; run -all; quit"
+
+
+
+
+
+
+
+
+
+
